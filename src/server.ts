@@ -15,7 +15,7 @@ import { closeKafka, getKafkaStatus, initKafka, publishEvent, publishSignal, sta
 import { verifyAdminCredential } from './auth';
 import { addSseClient, broadcastDashboardEvent, removeSseClient } from './realtime';
 import { fetchAlphaVantageCandles } from './services/alphaVantage.service';
-import { fetchCandlesByProvider } from './services/forexProviders.service';
+import { fetchCandlesByProvider, getProviderUsageSnapshot } from './services/forexProviders.service';
 // JS module on purpose to keep ML engine interchangeable (TensorFlow now, XGBoost later).
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const mlPredictor = require('./ml/predict.js');
@@ -168,6 +168,7 @@ app.get('/health', async () => {
     kafka: getKafkaStatus(),
     usingFallbackData: isUsingFallbackData,
     forexProvider: process.env.FOREX_PROVIDER || 'alphavantage',
+    providerUsage: getProviderUsageSnapshot(),
   };
 });
 

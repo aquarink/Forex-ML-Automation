@@ -20,6 +20,11 @@ const providerMinIntervalMs: Record<ProviderName, number> = {
 
 const providerCache = new Map<string, { ts: number; candles: ApiCandle[] }>();
 const providerUsage = new Map<string, { day: string; count: number }>();
+const providerDailyLimit: Record<ProviderName, number> = {
+  alphavantage: Number(process.env.ALPHAVANTAGE_DAILY_LIMIT || 100),
+  forexrateapi: Number(process.env.FOREXRATEAPI_DAILY_LIMIT || 100),
+  finnhub: Number(process.env.FINNHUB_DAILY_LIMIT || 10000),
+};
 
 function normalizeProvider(v?: string): ProviderName {
   const p = (v || 'alphavantage').toLowerCase();
@@ -40,6 +45,13 @@ function incrementUsage(provider: ProviderName) {
   }
   cur.count += 1;
   providerUsage.set(provider, cur);
+  return cur.count;
+}
+
+function currentUsage(provider: ProviderName) {
+  const day = todayKey();
+  const cur = providerUsage.get(provider);
+  if (!cur || cur.day !== day) return 0;
   return cur.count;
 }
 
@@ -132,9 +144,19 @@ export async function fetchCandlesByProvider(params: FetchParams & { provider?: 
   const now = Date.now();
   const cached = providerCache.get(cacheKey);
   const minInterval = providerMinIntervalMs[provider] ?? 60_000;
+  const usage = currentUsage(provider);
+  const dailyLimit = providerDailyLimit[provider] ?? 100;
+
+  if (usage >= dailyLimit) {
+    if (cached) {
+      console.log(`[provider hard-stop] ${provider} reached daily limit ${dailyLimit}, serving cached data`);
+      return { provider, candles: cached.candles, cached: true, hardStop: true };
+    }
+    throw new Error(`provider daily limit reached: ${provider} ${usage}/${dailyLimit}`);
+  }
 
   if (cached && now - cached.ts < minInterval) {
-    return { provider, candles: cached.candles, cached: true };
+    return { provider, candles: cached.candles, cached: true, hardStop: false };
   }
 
   let candles: ApiCandle[];
@@ -143,7 +165,17 @@ export async function fetchCandlesByProvider(params: FetchParams & { provider?: 
   else candles = await fetchAlphaVantageCandles({ symbol, timeframe, limit });
 
   providerCache.set(cacheKey, { ts: now, candles });
-  const usage = incrementUsage(provider);
-  console.log(`[provider usage] ${provider} ${todayKey()} count=${usage}`);
-  return { provider, candles, cached: false };
+  const nextUsage = incrementUsage(provider);
+  console.log(`[provider usage] ${provider} ${todayKey()} count=${nextUsage}`);
+  return { provider, candles, cached: false, hardStop: false };
+}
+
+export function getProviderUsageSnapshot() {
+  const day = todayKey();
+  return {
+    day,
+    alphavantage: { used: currentUsage('alphavantage'), limit: providerDailyLimit.alphavantage },
+    forexrateapi: { used: currentUsage('forexrateapi'), limit: providerDailyLimit.forexrateapi },
+    finnhub: { used: currentUsage('finnhub'), limit: providerDailyLimit.finnhub },
+  };
 }
