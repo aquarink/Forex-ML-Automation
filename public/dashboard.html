@@ -37,6 +37,10 @@
       </div>
       <div class="panel" style="margin-top:12px;">
         <div class="label">Realtime Exchange</div>
+        <div style="display:flex; gap:16px; margin-top:6px; font-size:13px;">
+          <div>Pair: <b id="rtPair">EUR/USD</b></div>
+          <div>Provider: <b id="rtProvider">-</b></div>
+        </div>
         <div class="big" id="rtPrice">-</div>
         <div style="display:flex; gap:16px; margin-top:8px;">
           <div><span class="label">Pips</span><div id="rtPips">-</div></div>
@@ -77,6 +81,7 @@
     const timeframe = 'M5';
     const openPosition = 'NONE';
     let provider = 'alphavantage';
+    let prevClose = null;
 
     const chart = LightweightCharts.createChart(document.getElementById('chart'), {
       layout: { background: { color: '#0f1d37' }, textColor: '#d6e2f5' },
@@ -129,8 +134,21 @@
 
     function updateRealtimeIndicatorFromCandle(candle) {
       if (!candle) return;
-      document.getElementById('rtPrice').textContent = Number(candle.close).toFixed(5);
+      const close = Number(candle.close);
+      document.getElementById('rtPrice').textContent = close.toFixed(5);
       document.getElementById('rtTime').textContent = new Date(candle.time * 1000).toLocaleTimeString();
+      if (prevClose != null && Number.isFinite(prevClose) && prevClose !== 0) {
+        const pips = (close - prevClose) * 10000;
+        const pct = ((close - prevClose) / prevClose) * 100;
+        const cls = pips > 0 ? 'up' : pips < 0 ? 'down' : 'flat';
+        const pipsEl = document.getElementById('rtPips');
+        const pctEl = document.getElementById('rtChangePct');
+        pipsEl.textContent = pips.toFixed(1);
+        pctEl.textContent = pct.toFixed(4) + '%';
+        pipsEl.className = cls;
+        pctEl.className = cls;
+      }
+      prevClose = close;
     }
 
     async function refreshRealtimeIndicator() {
@@ -156,6 +174,8 @@
     async function loadInitial() {
       const health = await fetch('/health').then(r => r.json()).catch(() => ({ usingFallbackData: true, forexProvider: 'alphavantage' }));
       provider = health.forexProvider || 'alphavantage';
+      document.getElementById('rtPair').textContent = symbol;
+      document.getElementById('rtProvider').textContent = provider;
       document.getElementById('fallbackWarn').style.display = health.usingFallbackData ? 'block' : 'none';
 
       const candles = await fetch(`/api/candles/history?provider=${encodeURIComponent(provider)}&symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=200`).then(r => r.json());
@@ -177,6 +197,7 @@
         }
       }
       await refreshDecisionPanel();
+      await refreshRealtimeIndicator();
     }
 
     async function refreshDecisionPanel() {
