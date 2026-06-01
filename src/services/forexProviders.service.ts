@@ -12,10 +12,35 @@ const timeframeMap: Record<string, string> = {
   H1: '60min',
 };
 
+const providerMinIntervalMs: Record<ProviderName, number> = {
+  alphavantage: 60_000,
+  forexrateapi: 60_000,
+  finnhub: 15_000,
+};
+
+const providerCache = new Map<string, { ts: number; candles: ApiCandle[] }>();
+const providerUsage = new Map<string, { day: string; count: number }>();
+
 function normalizeProvider(v?: string): ProviderName {
   const p = (v || 'alphavantage').toLowerCase();
   if (p === 'forexrateapi' || p === 'finnhub') return p;
   return 'alphavantage';
+}
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function incrementUsage(provider: ProviderName) {
+  const day = todayKey();
+  const cur = providerUsage.get(provider);
+  if (!cur || cur.day !== day) {
+    providerUsage.set(provider, { day, count: 1 });
+    return 1;
+  }
+  cur.count += 1;
+  providerUsage.set(provider, cur);
+  return cur.count;
 }
 
 async function fetchForexRateApiCandles(params: FetchParams): Promise<ApiCandle[]> {
@@ -100,7 +125,25 @@ async function fetchFinnhubCandles(params: FetchParams): Promise<ApiCandle[]> {
 
 export async function fetchCandlesByProvider(params: FetchParams & { provider?: string }) {
   const provider = normalizeProvider(params.provider);
-  if (provider === 'forexrateapi') return { provider, candles: await fetchForexRateApiCandles(params) };
-  if (provider === 'finnhub') return { provider, candles: await fetchFinnhubCandles(params) };
-  return { provider: 'alphavantage' as const, candles: await fetchAlphaVantageCandles(params) };
+  const symbol = params.symbol || `${process.env.FOREX_SYMBOL_FROM || 'EUR'}/${process.env.FOREX_SYMBOL_TO || 'USD'}`;
+  const timeframe = params.timeframe || process.env.FOREX_TIMEFRAME || 'M5';
+  const limit = Math.max(1, params.limit || 200);
+  const cacheKey = `${provider}:${symbol}:${timeframe}:${limit}`;
+  const now = Date.now();
+  const cached = providerCache.get(cacheKey);
+  const minInterval = providerMinIntervalMs[provider] ?? 60_000;
+
+  if (cached && now - cached.ts < minInterval) {
+    return { provider, candles: cached.candles, cached: true };
+  }
+
+  let candles: ApiCandle[];
+  if (provider === 'forexrateapi') candles = await fetchForexRateApiCandles({ symbol, timeframe, limit });
+  else if (provider === 'finnhub') candles = await fetchFinnhubCandles({ symbol, timeframe, limit });
+  else candles = await fetchAlphaVantageCandles({ symbol, timeframe, limit });
+
+  providerCache.set(cacheKey, { ts: now, candles });
+  const usage = incrementUsage(provider);
+  console.log(`[provider usage] ${provider} ${todayKey()} count=${usage}`);
+  return { provider, candles, cached: false };
 }

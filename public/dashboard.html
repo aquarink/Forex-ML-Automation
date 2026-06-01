@@ -19,6 +19,9 @@
     .hold { background:#ffd166; }
     .signal-detail { margin-top:12px; font-size:13px; line-height:1.5; color:#d6e2f5; }
     .warn { margin-top:10px; color:#ffd166; font-size:12px; }
+    .up { color:#1bc47d; }
+    .down { color:#ff5b61; }
+    .flat { color:#d6e2f5; }
     button { background:#243d67; color:#fff; border:0; border-radius:8px; padding:8px 12px; cursor:pointer; }
   </style>
 </head>
@@ -123,9 +126,16 @@
       try {
         const r = await fetch(`/api/exchange/realtime?provider=${encodeURIComponent(provider)}&symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}`);
         const x = await r.json();
+        const pips = Number(x.pips);
+        const pct = Number(x.changePct);
+        const cls = pips > 0 ? 'up' : pips < 0 ? 'down' : 'flat';
         document.getElementById('rtPrice').textContent = Number(x.price).toFixed(5);
-        document.getElementById('rtPips').textContent = Number(x.pips).toFixed(1);
-        document.getElementById('rtChangePct').textContent = Number(x.changePct).toFixed(4) + '%';
+        const pipsEl = document.getElementById('rtPips');
+        const pctEl = document.getElementById('rtChangePct');
+        pipsEl.textContent = pips.toFixed(1);
+        pctEl.textContent = pct.toFixed(4) + '%';
+        pipsEl.className = cls;
+        pctEl.className = cls;
         document.getElementById('rtTime').textContent = new Date(Number(x.time) * 1000).toLocaleTimeString();
       } catch (e) {
         console.error('realtime indicator fetch failed', e);
@@ -203,8 +213,8 @@
       } catch (err) {
         console.error('polling failed', err);
       }
-    }, 30000);
-    setInterval(refreshRealtimeIndicator, 30000);
+    }, 60000);
+    setInterval(refreshRealtimeIndicator, 60000);
 
     window.addEventListener('resize', () => chart.applyOptions({ width: document.getElementById('chart').clientWidth }));
     loadInitial();

@@ -598,7 +598,7 @@ async function start() {
     broadcastDashboardEvent({ type: 'signal', payload: signalEvent });
   }).catch(() => undefined);
 
-  // Alpha Vantage polling (development-safe interval).
+  // Provider polling interval (safe for free-tier limits).
   setInterval(async () => {
     try {
       const from = process.env.FOREX_SYMBOL_FROM || 'EUR';
@@ -635,7 +635,7 @@ async function start() {
     } catch {
       // keep dashboard running using fallback path
     }
-  }, 30000);
+  }, 60000);
 }
 
 start().catch((err) => {
