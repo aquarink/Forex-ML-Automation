@@ -1,0 +1,182 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Forex Dashboard</title>
+  <style>
+    body { margin:0; font-family: Arial, sans-serif; background:#081327; color:#f7fbff; }
+    header { display:flex; justify-content:space-between; align-items:center; padding:14px 18px; background:#0f1d37; border-bottom:1px solid #1f3a67; }
+    .wrap { padding:16px; display:grid; grid-template-columns: 1fr 320px; gap:16px; }
+    .panel { background:#0f1d37; border:1px solid #1f3a67; border-radius:12px; padding:12px; }
+    #chart { height:460px; }
+    .label { color:#9fb4d6; font-size:12px; }
+    .big { font-size:26px; font-weight:700; margin-top:4px; }
+    .bar { height:14px; width:100%; background:#1d2d4f; border-radius:10px; overflow:hidden; }
+    .fill { height:100%; width:0%; transition:width .35s ease; }
+    .buy { background:#1bc47d; }
+    .sell { background:#ff5b61; }
+    .hold { background:#ffd166; }
+    .signal-detail { margin-top:12px; font-size:13px; line-height:1.5; color:#d6e2f5; }
+    button { background:#243d67; color:#fff; border:0; border-radius:8px; padding:8px 12px; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>Dashboard Realtime Forex</div>
+    <form method="POST" action="/logout"><button type="submit">Logout</button></form>
+  </header>
+  <div class="wrap">
+    <div class="panel">
+      <div id="chart"></div>
+    </div>
+    <div class="panel">
+      <div class="label">Current Signal</div>
+      <div class="big" id="signalType">HOLD</div>
+      <div class="label">Confidence</div>
+      <div class="bar"><div id="confidenceFill" class="fill hold"></div></div>
+      <div id="confidenceText" style="margin-top:6px">0%</div>
+      <hr style="border-color:#1f3a67; margin:14px 0">
+      <div class="label">Marker Detail</div>
+      <div class="signal-detail" id="markerDetail">Klik marker BUY/SELL untuk lihat detail.</div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/lightweight-charts@5.0.0/dist/lightweight-charts.standalone.production.js"></script>
+  <script>
+    const symbol = 'EUR/USD';
+    const timeframe = 'M5';
+
+    const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+      layout: { background: { color: '#0f1d37' }, textColor: '#d6e2f5' },
+      grid: { vertLines: { color: '#1a2f55' }, horzLines: { color: '#1a2f55' } },
+      rightPriceScale: { borderColor: '#315089' },
+      timeScale: { borderColor: '#315089' },
+      width: document.getElementById('chart').clientWidth,
+      height: 460,
+    });
+
+    const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
+      upColor: '#26a69a', downColor: '#ef5350', borderVisible: false,
+      wickUpColor: '#26a69a', wickDownColor: '#ef5350'
+    });
+
+    let markers = [];
+    let markerApi = null;
+
+    function updateMarkers(nextMarkers) {
+      try {
+        if (markerApi) {
+          markerApi.setMarkers(nextMarkers);
+          return;
+        }
+        markerApi = LightweightCharts.createSeriesMarkers(candleSeries, nextMarkers);
+      } catch (err) {
+        console.error('marker update failed', err);
+      }
+    }
+
+    function toEpoch(ts) {
+      return Math.floor(new Date(ts).getTime() / 1000);
+    }
+
+    function updateSignalVisual(type, confidence) {
+      document.getElementById('signalType').textContent = type;
+      const fill = document.getElementById('confidenceFill');
+      fill.style.width = confidence + '%';
+      fill.className = 'fill ' + (type === 'BUY' ? 'buy' : type === 'SELL' ? 'sell' : 'hold');
+      document.getElementById('confidenceText').textContent = confidence + '%';
+    }
+
+    async function loadInitial() {
+      const candlesRes = await fetch(`/dashboard/data?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}`);
+      const data = await candlesRes.json();
+      console.log('initial candles length', (data.candles || []).length);
+      candleSeries.setData(data.candles.map(c => ({
+        time: toEpoch(c.ts), open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close)
+      })));
+
+      markers = data.signals.map(s => ({
+        time: toEpoch(s.candle_time),
+        position: s.signal_type === 'BUY' ? 'belowBar' : 'aboveBar',
+        color: s.signal_type === 'BUY' ? '#1bc47d' : '#ff5b61',
+        shape: s.signal_type === 'BUY' ? 'arrowUp' : 'arrowDown',
+        text: `${s.signal_type} ${Number(s.confidence).toFixed(0)}%`,
+        meta: s,
+      }));
+      updateMarkers(markers);
+
+      if (data.latestSignal) updateSignalVisual(data.latestSignal.signal_type, Number(data.latestSignal.confidence));
+    }
+
+    chart.subscribeClick(async (param) => {
+      if (!param.time) return;
+      const hit = markers.find(m => m.time === param.time);
+      if (!hit || !hit.meta) return;
+      const meta = hit.meta;
+      document.getElementById('markerDetail').innerHTML =
+        `Time: ${meta.candle_time}<br>Signal: ${meta.signal_type}<br>Price: ${meta.price}<br>Confidence: ${Number(meta.confidence).toFixed(2)}%<br>Symbol: ${meta.symbol}`;
+
+      await fetch('/signals/event', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          symbol: meta.symbol,
+          signalType: meta.signal_type,
+          price: Number(meta.price),
+          confidence: Number(meta.confidence),
+          candleTime: meta.candle_time,
+        })
+      });
+    });
+
+    const evt = new EventSource('/dashboard/stream');
+    evt.onopen = () => console.log('websocket connected (sse)');
+    evt.onmessage = (msg) => {
+      const event = JSON.parse(msg.data);
+      if (event.type === 'candle') {
+        const c = event.payload;
+        console.log('realtime candle received', c.ts);
+        candleSeries.update({ time: toEpoch(c.ts), open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close) });
+      }
+      if (event.type === 'signal') {
+        const s = event.payload;
+        console.log('signal received', s.signal_type, s.confidence);
+        updateSignalVisual(s.signal_type, Number(s.confidence));
+        if (s.signal_type !== 'HOLD') {
+          const marker = {
+            time: toEpoch(s.candle_time),
+            position: s.signal_type === 'BUY' ? 'belowBar' : 'aboveBar',
+            color: s.signal_type === 'BUY' ? '#1bc47d' : '#ff5b61',
+            shape: s.signal_type === 'BUY' ? 'arrowUp' : 'arrowDown',
+            text: `${s.signal_type} ${Number(s.confidence).toFixed(0)}%`,
+            meta: s,
+          };
+          markers.push(marker);
+          updateMarkers(markers);
+        }
+      }
+    };
+
+    setInterval(async () => {
+      try {
+        const resp = await fetch(`/api/candles/latest?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=1`);
+        const data = await resp.json();
+        const latest = data.data && data.data[0];
+        if (!latest) return;
+        candleSeries.update({
+          time: toEpoch(latest.ts),
+          open: Number(latest.open),
+          high: Number(latest.high),
+          low: Number(latest.low),
+          close: Number(latest.close),
+        });
+      } catch (err) {
+        console.error('polling fallback failed', err);
+      }
+    }, 5000);
+
+    window.addEventListener('resize', () => chart.applyOptions({ width: document.getElementById('chart').clientWidth }));
+    loadInitial();
+  </script>
+</body>
+</html>

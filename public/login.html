@@ -1,0 +1,34 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Login Forex</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f4f7fb; display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; }
+    .card { width: 360px; background:#fff; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,0.08); padding:24px; }
+    h1 { margin:0 0 16px; font-size:22px; }
+    label { font-size:13px; color:#334; display:block; margin:10px 0 6px; }
+    input { width:100%; padding:10px; border:1px solid #ccd; border-radius:8px; box-sizing:border-box; }
+    button { margin-top:16px; width:100%; padding:10px; border:0; border-radius:8px; background:#1459d9; color:#fff; font-weight:600; cursor:pointer; }
+    .err { color:#b3261e; margin-top:10px; font-size:13px; }
+  </style>
+</head>
+<body>
+  <form class="card" method="POST" action="/login">
+    <h1>Forex Admin Login</h1>
+    <label>Username</label>
+    <input name="username" required />
+    <label>Password</label>
+    <input name="password" type="password" required />
+    <button type="submit">Login</button>
+    <div class="err" id="err"></div>
+  </form>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('error')) {
+      document.getElementById('err').textContent = 'Username/password salah';
+    }
+  </script>
+</body>
+</html>
