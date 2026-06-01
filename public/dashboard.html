@@ -51,6 +51,7 @@
     const symbol = 'EUR/USD';
     const timeframe = 'M5';
     const openPosition = 'NONE';
+    let provider = 'alphavantage';
 
     const chart = LightweightCharts.createChart(document.getElementById('chart'), {
       layout: { background: { color: '#0f1d37' }, textColor: '#d6e2f5' },
@@ -102,10 +103,11 @@
     }
 
     async function loadInitial() {
-      const health = await fetch('/health').then(r => r.json()).catch(() => ({ usingFallbackData: true }));
+      const health = await fetch('/health').then(r => r.json()).catch(() => ({ usingFallbackData: true, forexProvider: 'alphavantage' }));
+      provider = health.forexProvider || 'alphavantage';
       document.getElementById('fallbackWarn').style.display = health.usingFallbackData ? 'block' : 'none';
 
-      const candles = await fetch(`/api/candles/history?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=200`).then(r => r.json());
+      const candles = await fetch(`/api/candles/history?provider=${encodeURIComponent(provider)}&symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=200`).then(r => r.json());
       console.log('history candles', candles.length);
       candleSeries.setData(candles);
       if (candles.length > 0) lastCandleTime = candles[candles.length - 1].time;
@@ -151,7 +153,7 @@
 
     setInterval(async () => {
       try {
-        const latestList = await fetch(`/api/candles/latest?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=1`).then(r => r.json());
+        const latestList = await fetch(`/api/candles/latest?provider=${encodeURIComponent(provider)}&symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=1`).then(r => r.json());
         const latest = latestList && latestList[0];
         console.log('latest candle', latest);
         if (!latest) return;

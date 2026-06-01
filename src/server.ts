@@ -15,6 +15,7 @@ import { closeKafka, getKafkaStatus, initKafka, publishEvent, publishSignal, sta
 import { verifyAdminCredential } from './auth';
 import { addSseClient, broadcastDashboardEvent, removeSseClient } from './realtime';
 import { fetchAlphaVantageCandles } from './services/alphaVantage.service';
+import { fetchCandlesByProvider } from './services/forexProviders.service';
 // JS module on purpose to keep ML engine interchangeable (TensorFlow now, XGBoost later).
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const mlPredictor = require('./ml/predict.js');
@@ -161,7 +162,13 @@ async function processSignalFromCandleStream(symbol: string, timeframe: string) 
 
 app.get('/health', async () => {
   const dbTime = await testDb();
-  return { status: 'ok', dbTime, kafka: getKafkaStatus(), usingFallbackData: isUsingFallbackData };
+  return {
+    status: 'ok',
+    dbTime,
+    kafka: getKafkaStatus(),
+    usingFallbackData: isUsingFallbackData,
+    forexProvider: process.env.FOREX_PROVIDER || 'alphavantage',
+  };
 });
 
 app.get('/login', async (request, reply) => {
@@ -322,14 +329,16 @@ app.get('/candles/latest', async (request) => {
   return { count: res.rowCount, data: res.rows };
 });
 app.get('/api/candles/latest', async (request) => {
-  const q = request.query as { symbol?: string; timeframe?: string; limit?: string };
+  const q = request.query as { symbol?: string; timeframe?: string; limit?: string; provider?: string };
   const symbol = q.symbol ?? 'EUR/USD';
   const timeframe = q.timeframe ?? 'M5';
   const limit = Number(q.limit ?? 1);
+  const provider = q.provider ?? (process.env.FOREX_PROVIDER || 'alphavantage');
 
   try {
-    const apiCandles = await fetchAlphaVantageCandles({ symbol, timeframe, limit });
+    const { provider: usedProvider, candles: apiCandles } = await fetchCandlesByProvider({ symbol, timeframe, limit, provider });
     if (apiCandles.length > 0) {
+      console.log('[candles latest] using provider', usedProvider);
       await saveApiCandlesToDb(symbol, timeframe, apiCandles);
       isUsingFallbackData = false;
       return apiCandles.slice(-limit);
@@ -363,14 +372,16 @@ app.get('/api/candles/latest', async (request) => {
 });
 
 app.get('/api/candles/history', async (request) => {
-  const q = request.query as { symbol?: string; timeframe?: string; limit?: string };
+  const q = request.query as { symbol?: string; timeframe?: string; limit?: string; provider?: string };
   const symbol = q.symbol ?? 'EUR/USD';
   const timeframe = q.timeframe ?? 'M5';
   const limit = Number(q.limit ?? 200);
+  const provider = q.provider ?? (process.env.FOREX_PROVIDER || 'alphavantage');
 
   try {
-    const apiCandles = await fetchAlphaVantageCandles({ symbol, timeframe, limit });
+    const { provider: usedProvider, candles: apiCandles } = await fetchCandlesByProvider({ symbol, timeframe, limit, provider });
     if (apiCandles.length > 0) {
+      console.log('[candles history] using provider', usedProvider);
       await saveApiCandlesToDb(symbol, timeframe, apiCandles);
       isUsingFallbackData = false;
       return apiCandles;
@@ -552,8 +563,9 @@ async function start() {
       const from = process.env.FOREX_SYMBOL_FROM || 'EUR';
       const to = process.env.FOREX_SYMBOL_TO || 'USD';
       const timeframe = process.env.FOREX_TIMEFRAME || 'M5';
+      const provider = process.env.FOREX_PROVIDER || 'alphavantage';
       const symbol = `${from}/${to}`;
-      const candles = await fetchAlphaVantageCandles({ symbol, timeframe, limit: 2 });
+      const { candles } = await fetchCandlesByProvider({ symbol, timeframe, limit: 2, provider });
       if (candles.length === 0) return;
       await saveApiCandlesToDb(symbol, timeframe, candles);
       const latest = candles[candles.length - 1];
