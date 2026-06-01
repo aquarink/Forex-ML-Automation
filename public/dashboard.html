@@ -44,6 +44,17 @@
           <div><span class="label">Time</span><div id="rtTime">-</div></div>
         </div>
       </div>
+      <div class="panel" style="margin-top:12px;">
+        <div class="label">ML Trade Decision</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; font-size:14px;">
+          <div>Signal: <b id="mlSignal">-</b></div>
+          <div>Confidence: <b id="mlConf">-</b></div>
+          <div>Entry: <b id="mlEntry">-</b></div>
+          <div>SL: <b id="mlSl">-</b></div>
+          <div>TP: <b id="mlTp">-</b></div>
+          <div>R:R: <b id="mlRr">-</b></div>
+        </div>
+      </div>
     </div>
     <div class="panel">
       <div class="label">Predicted Signal</div>
@@ -165,6 +176,24 @@
           addSignalMarker(signal, confidence, candles[candles.length - 1].time);
         }
       }
+      await refreshDecisionPanel();
+    }
+
+    async function refreshDecisionPanel() {
+      try {
+        const r = await fetch(`/api/ml/latest-decision?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}`);
+        const json = await r.json();
+        const d = json.data;
+        if (!d) return;
+        document.getElementById('mlSignal').textContent = d.signal_type;
+        document.getElementById('mlConf').textContent = Number(d.confidence).toFixed(1) + '%';
+        document.getElementById('mlEntry').textContent = Number(d.entry_price).toFixed(5);
+        document.getElementById('mlSl').textContent = Number(d.stop_loss).toFixed(5);
+        document.getElementById('mlTp').textContent = Number(d.take_profit).toFixed(5);
+        document.getElementById('mlRr').textContent = Number(d.risk_reward).toFixed(2);
+      } catch (e) {
+        console.error('decision panel fetch failed', e);
+      }
     }
 
     const evt = new EventSource('/dashboard/stream');
@@ -193,6 +222,15 @@
           addSignalMarker(signal, confidence, candleTime);
         }
       }
+      if (event.type === 'decision') {
+        const d = event.payload;
+        document.getElementById('mlSignal').textContent = d.signal_type;
+        document.getElementById('mlConf').textContent = Number(d.confidence).toFixed(1) + '%';
+        document.getElementById('mlEntry').textContent = Number(d.entry_price).toFixed(5);
+        document.getElementById('mlSl').textContent = Number(d.stop_loss).toFixed(5);
+        document.getElementById('mlTp').textContent = Number(d.take_profit).toFixed(5);
+        document.getElementById('mlRr').textContent = Number(d.risk_reward).toFixed(2);
+      }
     };
 
     setInterval(async () => {
@@ -215,6 +253,7 @@
       }
     }, 60000);
     setInterval(refreshRealtimeIndicator, 60000);
+    setInterval(refreshDecisionPanel, 60000);
 
     window.addEventListener('resize', () => chart.applyOptions({ width: document.getElementById('chart').clientWidth }));
     loadInitial();

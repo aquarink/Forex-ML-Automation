@@ -77,4 +77,21 @@ export async function ensureSchema() {
       UNIQUE(symbol, signal_type, candle_time)
     );
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS forex.ml_decisions (
+      id BIGSERIAL PRIMARY KEY,
+      symbol TEXT NOT NULL,
+      timeframe TEXT NOT NULL,
+      signal_type TEXT NOT NULL CHECK (signal_type IN ('BUY','SELL','HOLD')),
+      entry_price NUMERIC(18,8) NOT NULL,
+      stop_loss NUMERIC(18,8) NOT NULL,
+      take_profit NUMERIC(18,8) NOT NULL,
+      risk_reward NUMERIC(8,4) NOT NULL,
+      confidence NUMERIC(5,2) NOT NULL,
+      reason TEXT,
+      candle_time TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
 }

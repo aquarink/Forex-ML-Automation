@@ -147,6 +147,46 @@ async function processSignalFromCandleStream(symbol: string, timeframe: string) 
     [symbol, ml.signalType, lastPrice, ml.confidence, lastTs],
   );
 
+  // Build actionable decision levels from latest volatility (simple ATR-like average range).
+  const recent = candles.slice(-14);
+  const avgRange = recent.reduce((acc, c) => acc + Math.abs(c.high - c.low), 0) / Math.max(1, recent.length);
+  const entry = lastPrice;
+  const slDistance = Math.max(avgRange, entry * 0.0008);
+  const tpDistance = slDistance * 1.8;
+  let stopLoss = entry;
+  let takeProfit = entry;
+  if (ml.signalType === 'BUY') {
+    stopLoss = entry - slDistance;
+    takeProfit = entry + tpDistance;
+  } else if (ml.signalType === 'SELL') {
+    stopLoss = entry + slDistance;
+    takeProfit = entry - tpDistance;
+  } else {
+    stopLoss = entry - slDistance;
+    takeProfit = entry + slDistance;
+  }
+  const risk = Math.abs(entry - stopLoss);
+  const reward = Math.abs(takeProfit - entry);
+  const riskReward = risk === 0 ? 1 : reward / risk;
+
+  await pool.query(
+    `INSERT INTO forex.ml_decisions
+      (symbol, timeframe, signal_type, entry_price, stop_loss, take_profit, risk_reward, confidence, reason, candle_time)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [
+      symbol,
+      timeframe,
+      ml.signalType,
+      entry,
+      stopLoss,
+      takeProfit,
+      riskReward,
+      ml.confidence,
+      ml.reason,
+      lastTs,
+    ],
+  );
+
   return {
     signal_id: signalId,
     symbol,
@@ -157,6 +197,15 @@ async function processSignalFromCandleStream(symbol: string, timeframe: string) 
     candle_time: lastTs,
     reason: ml.reason,
     engine: ml.engine,
+    decision: {
+      signal_type: ml.signalType,
+      entry_price: entry,
+      stop_loss: stopLoss,
+      take_profit: takeProfit,
+      risk_reward: riskReward,
+      confidence: ml.confidence,
+      candle_time: lastTs,
+    },
   };
 }
 
@@ -456,6 +505,39 @@ app.get('/api/exchange/realtime', async (request) => {
   };
 });
 
+app.get('/api/ml/latest-decision', async (request) => {
+  const q = request.query as { symbol?: string; timeframe?: string };
+  const symbol = q.symbol ?? 'EUR/USD';
+  const timeframe = q.timeframe ?? 'M5';
+
+  const res = await pool.query(
+    `SELECT id, symbol, timeframe, signal_type, entry_price, stop_loss, take_profit, risk_reward, confidence, reason, candle_time, created_at
+     FROM forex.ml_decisions
+     WHERE symbol = $1 AND timeframe = $2
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [symbol, timeframe],
+  );
+  return { ok: true, data: res.rows[0] ?? null };
+});
+
+app.get('/api/ml/decision-history', async (request) => {
+  const q = request.query as { symbol?: string; timeframe?: string; limit?: string };
+  const symbol = q.symbol ?? 'EUR/USD';
+  const timeframe = q.timeframe ?? 'M5';
+  const limit = Number(q.limit ?? 100);
+
+  const res = await pool.query(
+    `SELECT id, symbol, timeframe, signal_type, entry_price, stop_loss, take_profit, risk_reward, confidence, reason, candle_time, created_at
+     FROM forex.ml_decisions
+     WHERE symbol = $1 AND timeframe = $2
+     ORDER BY created_at DESC
+     LIMIT $3`,
+    [symbol, timeframe, limit],
+  );
+  return { ok: true, count: res.rowCount, data: res.rows };
+});
+
 app.get('/signals/generate', async (request) => {
   const q = request.query as { symbol?: string; timeframe?: string };
   const symbol = q.symbol ?? 'EUR/USD';
@@ -469,6 +551,9 @@ app.get('/signals/generate', async (request) => {
   await publishEvent('signal_generated', signalEvent);
   await publishSignal(signalEvent);
   broadcastDashboardEvent({ type: 'signal', payload: signalEvent });
+  if (signalEvent.decision) {
+    broadcastDashboardEvent({ type: 'decision', payload: signalEvent.decision });
+  }
 
   return {
     ok: true,
@@ -597,6 +682,9 @@ async function start() {
     await publishSignal(signalEvent);
     await publishEvent('signal_generated', signalEvent);
     broadcastDashboardEvent({ type: 'signal', payload: signalEvent });
+    if (signalEvent.decision) {
+      broadcastDashboardEvent({ type: 'decision', payload: signalEvent.decision });
+    }
   }).catch(() => undefined);
 
   // Provider polling interval (safe for free-tier limits).
