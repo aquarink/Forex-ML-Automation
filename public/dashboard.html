@@ -47,6 +47,10 @@
           <div><span class="label">Change %</span><div id="rtChangePct">-</div></div>
           <div><span class="label">Time</span><div id="rtTime">-</div></div>
         </div>
+        <div style="display:flex; gap:16px; margin-top:8px; font-size:13px;">
+          <div>Trend: <b id="rtTrend">-</b></div>
+          <div>Volatility: <b id="rtVolatility">-</b></div>
+        </div>
       </div>
       <div class="panel" style="margin-top:12px;">
         <div class="label">ML Trade Decision</div>
@@ -79,7 +83,7 @@
   <script>
     const symbol = 'EUR/USD';
     const timeframe = 'M5';
-    const openPosition = 'NONE';
+    let openPosition = 'NONE';
     let provider = 'alphavantage';
     let prevClose = null;
 
@@ -121,6 +125,48 @@
       fill.style.width = Math.round(confidence * 100) + '%';
       fill.className = 'fill ' + (type === 'BUY' ? 'buy' : type === 'SELL' ? 'sell' : 'hold');
       document.getElementById('confidenceText').textContent = Math.round(confidence * 100) + '%';
+    }
+
+    function applyDashboardState(state) {
+      if (!state) return;
+      provider = state.provider || provider;
+      openPosition = state.position?.status || 'NONE';
+      document.getElementById('rtPair').textContent = state.pair || symbol;
+      document.getElementById('rtProvider').textContent = provider;
+      document.getElementById('fallbackWarn').style.display = state.usingFallbackData ? 'block' : 'none';
+      document.getElementById('rtTrend').textContent = state.market?.trend || '-';
+      document.getElementById('rtVolatility').textContent = state.market?.volatility || '-';
+
+      if (state.price) {
+        const pips = Number(state.price.pips || 0);
+        const pct = Number(state.price.changePct || 0);
+        const cls = pips > 0 ? 'up' : pips < 0 ? 'down' : 'flat';
+        document.getElementById('rtPrice').textContent = Number(state.price.value).toFixed(5);
+        document.getElementById('rtPips').textContent = pips.toFixed(1);
+        document.getElementById('rtChangePct').textContent = pct.toFixed(4) + '%';
+        document.getElementById('rtPips').className = cls;
+        document.getElementById('rtChangePct').className = cls;
+        document.getElementById('rtTime').textContent = new Date(Number(state.price.time) * 1000).toLocaleTimeString();
+      }
+
+      if (state.prediction) {
+        updateSignalVisual(String(state.prediction.signal || 'HOLD').toUpperCase(), Number(state.prediction.confidence || 0) / 100);
+      }
+
+      if (state.decision) {
+        document.getElementById('mlSignal').textContent = state.decision.signal;
+        document.getElementById('mlConf').textContent = Number(state.decision.confidence || 0).toFixed(1) + '%';
+        document.getElementById('mlEntry').textContent = Number(state.decision.entry || 0).toFixed(5);
+        document.getElementById('mlSl').textContent = Number(state.decision.stopLoss || 0).toFixed(5);
+        document.getElementById('mlTp').textContent = Number(state.decision.takeProfit || 0).toFixed(5);
+        document.getElementById('mlRr').textContent = Number(state.decision.riskReward || 0).toFixed(2);
+      }
+    }
+
+    async function refreshDashboardState() {
+      const state = await fetch(`/api/dashboard/state?provider=${encodeURIComponent(provider)}&symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}`).then(r => r.json());
+      applyDashboardState(state);
+      return state;
     }
 
     function addSignalMarker(signal, confidence, candleTime, meta = null) {
@@ -180,11 +226,8 @@
     }
 
     async function loadInitial() {
-      const health = await fetch('/health').then(r => r.json()).catch(() => ({ usingFallbackData: true, forexProvider: 'alphavantage' }));
-      provider = health.forexProvider || 'alphavantage';
-      document.getElementById('rtPair').textContent = symbol;
-      document.getElementById('rtProvider').textContent = provider;
-      document.getElementById('fallbackWarn').style.display = health.usingFallbackData ? 'block' : 'none';
+      const state = await refreshDashboardState().catch(() => null);
+      if (state?.provider) provider = state.provider;
 
       const candles = await fetch(`/api/candles/history?provider=${encodeURIComponent(provider)}&symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=200`).then(r => r.json());
       console.log('history candles', candles.length);
@@ -211,8 +254,7 @@
           });
         }
       }
-      await refreshDecisionPanel();
-      await refreshRealtimeIndicator();
+      await refreshDashboardState().catch(() => undefined);
     }
 
     async function refreshDecisionPanel() {
@@ -314,6 +356,7 @@
     }, 60000);
     setInterval(refreshRealtimeIndicator, 60000);
     setInterval(refreshDecisionPanel, 60000);
+    setInterval(refreshDashboardState, 60000);
 
     window.addEventListener('resize', () => chart.applyOptions({ width: document.getElementById('chart').clientWidth }));
     loadInitial();

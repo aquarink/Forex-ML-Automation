@@ -16,6 +16,7 @@ import { verifyAdminCredential } from './auth';
 import { addSseClient, broadcastDashboardEvent, removeSseClient } from './realtime';
 import { fetchAlphaVantageCandles } from './services/alphaVantage.service';
 import { fetchCandlesByProvider, getProviderUsageSnapshot } from './services/forexProviders.service';
+import { getDashboardState } from './services/dashboardState.service';
 // JS module on purpose to keep ML engine interchangeable (TensorFlow now, XGBoost later).
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const mlPredictor = require('./ml/predict.js');
@@ -293,6 +294,20 @@ app.get('/dashboard/stream', async (request, reply) => {
 
   request.raw.on('close', () => {
     removeSseClient(reply);
+  });
+});
+
+app.get('/api/dashboard/state', async (request) => {
+  const q = request.query as { symbol?: string; timeframe?: string; provider?: string };
+  const symbol = q.symbol ?? 'EUR/USD';
+  const timeframe = q.timeframe ?? 'M5';
+  const provider = q.provider ?? (process.env.FOREX_PROVIDER || 'alphavantage');
+
+  return getDashboardState({
+    symbol,
+    timeframe,
+    provider,
+    usingFallbackData: isUsingFallbackData,
   });
 });
 
