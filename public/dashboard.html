@@ -100,6 +100,7 @@
     let markers = [];
     let markerApi = null;
     let lastCandleTime = null;
+    const markerMetaByTime = new Map();
 
     function updateMarkers(nextMarkers) {
       try {
@@ -122,12 +123,19 @@
       document.getElementById('confidenceText').textContent = Math.round(confidence * 100) + '%';
     }
 
-    function addSignalMarker(signal, confidence, candleTime) {
+    function addSignalMarker(signal, confidence, candleTime, meta = null) {
       if (confidence < 0.6) return;
       const marker = signal === 'BUY'
         ? { time: candleTime, position: 'belowBar', color: '#00ff99', shape: 'arrowUp', text: 'BUY' }
         : { time: candleTime, position: 'aboveBar', color: '#ff4d4d', shape: 'arrowDown', text: 'SELL' };
       markers.push(marker);
+      markerMetaByTime.set(candleTime, meta || {
+        symbol,
+        signal_type: signal,
+        confidence: confidence * 100,
+        price: null,
+        candle_time: new Date(candleTime * 1000).toISOString(),
+      });
       console.log('markers', markers);
       updateMarkers(markers);
     }
@@ -193,7 +201,14 @@
         console.log('predicted signal', signal);
         updateSignalVisual(signal, confidence);
         if (signal !== 'HOLD' && candles.length > 0) {
-          addSignalMarker(signal, confidence, candles[candles.length - 1].time);
+          const t = candles[candles.length - 1].time;
+          addSignalMarker(signal, confidence, t, {
+            symbol,
+            signal_type: signal,
+            confidence: Number(signalResp.confidence || 0),
+            price: candles[candles.length - 1].close,
+            candle_time: new Date(t * 1000).toISOString(),
+          });
         }
       }
       await refreshDecisionPanel();
@@ -240,7 +255,7 @@
         updateSignalVisual(signal, confidence);
         if (signal !== 'HOLD') {
           const candleTime = Math.floor(new Date(s.candle_time).getTime() / 1000);
-          addSignalMarker(signal, confidence, candleTime);
+          addSignalMarker(signal, confidence, candleTime, s);
         }
       }
       if (event.type === 'decision') {
@@ -253,6 +268,30 @@
         document.getElementById('mlRr').textContent = Number(d.risk_reward).toFixed(2);
       }
     };
+
+    chart.subscribeClick(async (param) => {
+      if (!param.time) return;
+      const time = Number(param.time);
+      const meta = markerMetaByTime.get(time);
+      if (!meta) return;
+      document.getElementById('markerDetail').innerHTML =
+        `Time: ${meta.candle_time}<br>Signal: ${meta.signal_type}<br>Price: ${meta.price ?? '-'}<br>Confidence: ${Number(meta.confidence).toFixed(2)}%<br>Symbol: ${meta.symbol}`;
+      try {
+        await fetch('/signals/event', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            symbol: meta.symbol,
+            signalType: meta.signal_type,
+            price: Number(meta.price || 0),
+            confidence: Number(meta.confidence || 0),
+            candleTime: meta.candle_time,
+          }),
+        });
+      } catch (e) {
+        console.error('save signal event failed', e);
+      }
+    });
 
     setInterval(async () => {
       try {
