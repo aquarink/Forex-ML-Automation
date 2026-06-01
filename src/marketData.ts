@@ -18,7 +18,7 @@ function parseFxSymbol(symbol: string): { fromSymbol: string; toSymbol: string }
 }
 
 export async function fetchAndStoreAlphaVantage(symbol: string, timeframe: string) {
-  const apiKey = process.env.ALPHAVANTAGE_API_KEY;
+  const apiKey = process.env.ALPHA_VANTAGE_API_KEY || process.env.ALPHAVANTAGE_API_KEY;
   if (!apiKey) {
     throw new Error('ALPHAVANTAGE_API_KEY is not set');
   }

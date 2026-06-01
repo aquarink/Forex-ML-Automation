@@ -14,6 +14,7 @@ import { ensureSchema } from './schema';
 import { closeKafka, getKafkaStatus, initKafka, publishEvent, publishSignal, startCandleConsumer } from './kafka';
 import { verifyAdminCredential } from './auth';
 import { addSseClient, broadcastDashboardEvent, removeSseClient } from './realtime';
+import { fetchAlphaVantageCandles } from './services/alphaVantage.service';
 // JS module on purpose to keep ML engine interchangeable (TensorFlow now, XGBoost later).
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const mlPredictor = require('./ml/predict.js');
@@ -64,6 +65,7 @@ const latestCandleCache = new Map<string, {
   close: number;
   volume?: number | null;
 }>();
+let isUsingFallbackData = false;
 
 function cacheKey(symbol: string, timeframe: string) {
   return `${symbol}__${timeframe}`;
@@ -88,6 +90,19 @@ function mockCandle() {
     low: 1.0840,
     close: 1.0855,
   }];
+}
+
+async function saveApiCandlesToDb(symbol: string, timeframe: string, candles: Array<{ time: number; open: number; high: number; low: number; close: number }>) {
+  for (const c of candles) {
+    const ts = new Date(c.time * 1000).toISOString();
+    await pool.query(
+      `INSERT INTO forex.candles (symbol, timeframe, ts, open, high, low, close, volume, source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (symbol, timeframe, ts)
+       DO UPDATE SET open=EXCLUDED.open, high=EXCLUDED.high, low=EXCLUDED.low, close=EXCLUDED.close, source=EXCLUDED.source`,
+      [symbol, timeframe, ts, c.open, c.high, c.low, c.close, null, 'alphavantage'],
+    );
+  }
 }
 
 async function processSignalFromCandleStream(symbol: string, timeframe: string) {
@@ -146,7 +161,7 @@ async function processSignalFromCandleStream(symbol: string, timeframe: string) 
 
 app.get('/health', async () => {
   const dbTime = await testDb();
-  return { status: 'ok', dbTime, kafka: getKafkaStatus() };
+  return { status: 'ok', dbTime, kafka: getKafkaStatus(), usingFallbackData: isUsingFallbackData };
 });
 
 app.get('/login', async (request, reply) => {
@@ -204,7 +219,7 @@ app.get('/dashboard/data', async (request, reply) => {
   );
 
   const latestSignal = signalEventsRes.rows.length ? signalEventsRes.rows[signalEventsRes.rows.length - 1] : null;
-  return { candles: candlesRes.rows, signals: signalEventsRes.rows, latestSignal };
+  return { candles: candlesRes.rows, signals: signalEventsRes.rows, latestSignal, usingFallbackData: isUsingFallbackData };
 });
 
 app.get('/dashboard/stream', async (request, reply) => {
@@ -312,27 +327,17 @@ app.get('/api/candles/latest', async (request) => {
   const timeframe = q.timeframe ?? 'M5';
   const limit = Number(q.limit ?? 1);
 
-  const res = await pool.query(
-    `SELECT ts, open, high, low, close
-     FROM forex.candles
-     WHERE symbol = $1 AND timeframe = $2
-     ORDER BY ts DESC
-     LIMIT $3`,
-    [symbol, timeframe, limit],
-  );
-  if ((res.rowCount ?? 0) > 0) return res.rows.map(toChartCandle);
-
-  const cached = latestCandleCache.get(cacheKey(symbol, timeframe));
-  if (cached) return [toChartCandle(cached)];
-
-  return mockCandle();
-});
-
-app.get('/api/candles/history', async (request) => {
-  const q = request.query as { symbol?: string; timeframe?: string; limit?: string };
-  const symbol = q.symbol ?? 'EUR/USD';
-  const timeframe = q.timeframe ?? 'M5';
-  const limit = Number(q.limit ?? 200);
+  try {
+    const apiCandles = await fetchAlphaVantageCandles({ symbol, timeframe, limit });
+    if (apiCandles.length > 0) {
+      await saveApiCandlesToDb(symbol, timeframe, apiCandles);
+      isUsingFallbackData = false;
+      return apiCandles.slice(-limit);
+    }
+  } catch (err) {
+    isUsingFallbackData = true;
+    console.log('[candles latest] using fallback, alpha-vantage failed');
+  }
 
   const res = await pool.query(
     `SELECT ts, open, high, low, close
@@ -343,12 +348,58 @@ app.get('/api/candles/history', async (request) => {
     [symbol, timeframe, limit],
   );
   if ((res.rowCount ?? 0) > 0) {
+    console.log('[candles latest] fallback source: db');
+    return res.rows.map(toChartCandle);
+  }
+
+  const cached = latestCandleCache.get(cacheKey(symbol, timeframe));
+  if (cached) {
+    console.log('[candles latest] fallback source: memory cache');
+    return [toChartCandle(cached)];
+  }
+
+  console.log('[candles latest] fallback source: mock');
+  return mockCandle();
+});
+
+app.get('/api/candles/history', async (request) => {
+  const q = request.query as { symbol?: string; timeframe?: string; limit?: string };
+  const symbol = q.symbol ?? 'EUR/USD';
+  const timeframe = q.timeframe ?? 'M5';
+  const limit = Number(q.limit ?? 200);
+
+  try {
+    const apiCandles = await fetchAlphaVantageCandles({ symbol, timeframe, limit });
+    if (apiCandles.length > 0) {
+      await saveApiCandlesToDb(symbol, timeframe, apiCandles);
+      isUsingFallbackData = false;
+      return apiCandles;
+    }
+  } catch (err) {
+    isUsingFallbackData = true;
+    console.log('[candles history] using fallback, alpha-vantage failed');
+  }
+
+  const res = await pool.query(
+    `SELECT ts, open, high, low, close
+     FROM forex.candles
+     WHERE symbol = $1 AND timeframe = $2
+     ORDER BY ts DESC
+     LIMIT $3`,
+    [symbol, timeframe, limit],
+  );
+  if ((res.rowCount ?? 0) > 0) {
+    console.log('[candles history] fallback source: db');
     return res.rows.reverse().map(toChartCandle);
   }
 
   const cached = latestCandleCache.get(cacheKey(symbol, timeframe));
-  if (cached) return [toChartCandle(cached)];
+  if (cached) {
+    console.log('[candles history] fallback source: memory cache');
+    return [toChartCandle(cached)];
+  }
 
+  console.log('[candles history] fallback source: mock');
   return mockCandle();
 });
 
@@ -494,6 +545,44 @@ async function start() {
     await publishEvent('signal_generated', signalEvent);
     broadcastDashboardEvent({ type: 'signal', payload: signalEvent });
   }).catch(() => undefined);
+
+  // Alpha Vantage polling (development-safe interval).
+  setInterval(async () => {
+    try {
+      const from = process.env.FOREX_SYMBOL_FROM || 'EUR';
+      const to = process.env.FOREX_SYMBOL_TO || 'USD';
+      const timeframe = process.env.FOREX_TIMEFRAME || 'M5';
+      const symbol = `${from}/${to}`;
+      const candles = await fetchAlphaVantageCandles({ symbol, timeframe, limit: 2 });
+      if (candles.length === 0) return;
+      await saveApiCandlesToDb(symbol, timeframe, candles);
+      const latest = candles[candles.length - 1];
+      latestCandleCache.set(cacheKey(symbol, timeframe), {
+        symbol,
+        timeframe,
+        ts: new Date(latest.time * 1000).toISOString(),
+        open: latest.open,
+        high: latest.high,
+        low: latest.low,
+        close: latest.close,
+        volume: null,
+      });
+      broadcastDashboardEvent({
+        type: 'candle',
+        payload: {
+          symbol,
+          timeframe,
+          ts: new Date(latest.time * 1000).toISOString(),
+          open: latest.open,
+          high: latest.high,
+          low: latest.low,
+          close: latest.close,
+        },
+      });
+    } catch {
+      // keep dashboard running using fallback path
+    }
+  }, 30000);
 }
 
 start().catch((err) => {

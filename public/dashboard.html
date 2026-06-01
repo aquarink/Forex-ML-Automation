@@ -18,6 +18,7 @@
     .sell { background:#ff5b61; }
     .hold { background:#ffd166; }
     .signal-detail { margin-top:12px; font-size:13px; line-height:1.5; color:#d6e2f5; }
+    .warn { margin-top:10px; color:#ffd166; font-size:12px; }
     button { background:#243d67; color:#fff; border:0; border-radius:8px; padding:8px 12px; cursor:pointer; }
   </style>
 </head>
@@ -31,11 +32,14 @@
       <div id="chart"></div>
     </div>
     <div class="panel">
-      <div class="label">Current Signal</div>
+      <div class="label">Predicted Signal</div>
       <div class="big" id="signalType">HOLD</div>
+      <div class="label">Open Position</div>
+      <div class="big" id="openPosition">NONE</div>
       <div class="label">Confidence</div>
       <div class="bar"><div id="confidenceFill" class="fill hold"></div></div>
       <div id="confidenceText" style="margin-top:6px">0%</div>
+      <div class="warn" id="fallbackWarn" style="display:none">Using fallback/mock data</div>
       <hr style="border-color:#1f3a67; margin:14px 0">
       <div class="label">Marker Detail</div>
       <div class="signal-detail" id="markerDetail">Klik marker BUY/SELL untuk lihat detail.</div>
@@ -46,6 +50,7 @@
   <script>
     const symbol = 'EUR/USD';
     const timeframe = 'M5';
+    const openPosition = 'NONE';
 
     const chart = LightweightCharts.createChart(document.getElementById('chart'), {
       layout: { background: { color: '#0f1d37' }, textColor: '#d6e2f5' },
@@ -63,6 +68,7 @@
 
     let markers = [];
     let markerApi = null;
+    let lastCandleTime = null;
 
     function updateMarkers(nextMarkers) {
       try {
@@ -76,104 +82,90 @@
       }
     }
 
-    function toEpoch(ts) {
-      return Math.floor(new Date(ts).getTime() / 1000);
-    }
-
     function updateSignalVisual(type, confidence) {
       document.getElementById('signalType').textContent = type;
+      document.getElementById('openPosition').textContent = openPosition;
       const fill = document.getElementById('confidenceFill');
-      fill.style.width = confidence + '%';
+      fill.style.width = Math.round(confidence * 100) + '%';
       fill.className = 'fill ' + (type === 'BUY' ? 'buy' : type === 'SELL' ? 'sell' : 'hold');
-      document.getElementById('confidenceText').textContent = confidence + '%';
+      document.getElementById('confidenceText').textContent = Math.round(confidence * 100) + '%';
+    }
+
+    function addSignalMarker(signal, confidence, candleTime) {
+      if (confidence < 0.6) return;
+      const marker = signal === 'BUY'
+        ? { time: candleTime, position: 'belowBar', color: '#00ff99', shape: 'arrowUp', text: 'BUY' }
+        : { time: candleTime, position: 'aboveBar', color: '#ff4d4d', shape: 'arrowDown', text: 'SELL' };
+      markers.push(marker);
+      console.log('markers', markers);
+      updateMarkers(markers);
     }
 
     async function loadInitial() {
-      const candlesRes = await fetch(`/dashboard/data?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}`);
-      const data = await candlesRes.json();
-      console.log('initial candles length', (data.candles || []).length);
-      candleSeries.setData(data.candles.map(c => ({
-        time: toEpoch(c.ts), open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close)
-      })));
+      const health = await fetch('/health').then(r => r.json()).catch(() => ({ usingFallbackData: true }));
+      document.getElementById('fallbackWarn').style.display = health.usingFallbackData ? 'block' : 'none';
 
-      markers = data.signals.map(s => ({
-        time: toEpoch(s.candle_time),
-        position: s.signal_type === 'BUY' ? 'belowBar' : 'aboveBar',
-        color: s.signal_type === 'BUY' ? '#1bc47d' : '#ff5b61',
-        shape: s.signal_type === 'BUY' ? 'arrowUp' : 'arrowDown',
-        text: `${s.signal_type} ${Number(s.confidence).toFixed(0)}%`,
-        meta: s,
-      }));
-      updateMarkers(markers);
+      const candles = await fetch(`/api/candles/history?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=200`).then(r => r.json());
+      console.log('history candles', candles.length);
+      candleSeries.setData(candles);
+      if (candles.length > 0) lastCandleTime = candles[candles.length - 1].time;
 
-      if (data.latestSignal) updateSignalVisual(data.latestSignal.signal_type, Number(data.latestSignal.confidence));
+      const signalResp = await fetch(`/signals/generate?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}`).then(r => r.json()).catch(() => null);
+      if (signalResp && signalResp.ok) {
+        const signal = String(signalResp.signal || 'HOLD').toUpperCase();
+        const confidence = Number(signalResp.confidence || 0) / 100;
+        console.log('predicted signal', signal);
+        updateSignalVisual(signal, confidence);
+        if (signal !== 'HOLD' && candles.length > 0) {
+          addSignalMarker(signal, confidence, candles[candles.length - 1].time);
+        }
+      }
     }
 
-    chart.subscribeClick(async (param) => {
-      if (!param.time) return;
-      const hit = markers.find(m => m.time === param.time);
-      if (!hit || !hit.meta) return;
-      const meta = hit.meta;
-      document.getElementById('markerDetail').innerHTML =
-        `Time: ${meta.candle_time}<br>Signal: ${meta.signal_type}<br>Price: ${meta.price}<br>Confidence: ${Number(meta.confidence).toFixed(2)}%<br>Symbol: ${meta.symbol}`;
-
-      await fetch('/signals/event', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          symbol: meta.symbol,
-          signalType: meta.signal_type,
-          price: Number(meta.price),
-          confidence: Number(meta.confidence),
-          candleTime: meta.candle_time,
-        })
-      });
-    });
-
     const evt = new EventSource('/dashboard/stream');
-    evt.onopen = () => console.log('websocket connected (sse)');
+    evt.onopen = () => console.log('websocket connected');
     evt.onmessage = (msg) => {
       const event = JSON.parse(msg.data);
       if (event.type === 'candle') {
         const c = event.payload;
-        console.log('realtime candle received', c.ts);
-        candleSeries.update({ time: toEpoch(c.ts), open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close) });
+        const payload = {
+          time: Math.floor(new Date(c.ts).getTime() / 1000),
+          open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close),
+        };
+        console.log('realtime candle received', payload);
+        candleSeries.update(payload);
+        lastCandleTime = payload.time;
       }
       if (event.type === 'signal') {
         const s = event.payload;
-        console.log('signal received', s.signal_type, s.confidence);
-        updateSignalVisual(s.signal_type, Number(s.confidence));
-        if (s.signal_type !== 'HOLD') {
-          const marker = {
-            time: toEpoch(s.candle_time),
-            position: s.signal_type === 'BUY' ? 'belowBar' : 'aboveBar',
-            color: s.signal_type === 'BUY' ? '#1bc47d' : '#ff5b61',
-            shape: s.signal_type === 'BUY' ? 'arrowUp' : 'arrowDown',
-            text: `${s.signal_type} ${Number(s.confidence).toFixed(0)}%`,
-            meta: s,
-          };
-          markers.push(marker);
-          updateMarkers(markers);
+        const signal = String(s.signal_type || 'HOLD').toUpperCase();
+        const confidence = Number(s.confidence || 0) / 100;
+        console.log('predicted signal', signal);
+        updateSignalVisual(signal, confidence);
+        if (signal !== 'HOLD') {
+          const candleTime = Math.floor(new Date(s.candle_time).getTime() / 1000);
+          addSignalMarker(signal, confidence, candleTime);
         }
       }
     };
 
     setInterval(async () => {
       try {
-        const resp = await fetch(`/api/candles/latest?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=1`);
-        const data = await resp.json();
-        const latest = data.data && data.data[0];
+        const latestList = await fetch(`/api/candles/latest?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=1`).then(r => r.json());
+        const latest = latestList && latestList[0];
+        console.log('latest candle', latest);
         if (!latest) return;
-        candleSeries.update({
-          time: toEpoch(latest.ts),
-          open: Number(latest.open),
-          high: Number(latest.high),
-          low: Number(latest.low),
-          close: Number(latest.close),
-        });
+
+        if (!lastCandleTime || latest.time > lastCandleTime) {
+          candleSeries.update(latest);
+          lastCandleTime = latest.time;
+        } else if (latest.time === lastCandleTime) {
+          candleSeries.update(latest);
+        }
       } catch (err) {
-        console.error('polling fallback failed', err);
+        console.error('polling failed', err);
       }
-    }, 5000);
+    }, 30000);
 
     window.addEventListener('resize', () => chart.applyOptions({ width: document.getElementById('chart').clientWidth }));
     loadInitial();
