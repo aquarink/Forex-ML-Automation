@@ -26,6 +26,15 @@ const providerDailyLimit: Record<ProviderName, number> = {
   finnhub: Number(process.env.FINNHUB_DAILY_LIMIT || 10000),
 };
 
+function safeLimit(provider: ProviderName) {
+  const raw = providerDailyLimit[provider];
+  if (!Number.isFinite(raw) || raw <= 0) {
+    if (provider === 'finnhub') return 10000;
+    return 100;
+  }
+  return raw;
+}
+
 function normalizeProvider(v?: string): ProviderName {
   const p = (v || 'alphavantage').toLowerCase();
   if (p === 'forexrateapi' || p === 'finnhub') return p;
@@ -145,7 +154,7 @@ export async function fetchCandlesByProvider(params: FetchParams & { provider?: 
   const cached = providerCache.get(cacheKey);
   const minInterval = providerMinIntervalMs[provider] ?? 60_000;
   const usage = currentUsage(provider);
-  const dailyLimit = providerDailyLimit[provider] ?? 100;
+  const dailyLimit = safeLimit(provider);
 
   if (usage >= dailyLimit) {
     if (cached) {
@@ -174,8 +183,8 @@ export function getProviderUsageSnapshot() {
   const day = todayKey();
   return {
     day,
-    alphavantage: { used: currentUsage('alphavantage'), limit: providerDailyLimit.alphavantage },
-    forexrateapi: { used: currentUsage('forexrateapi'), limit: providerDailyLimit.forexrateapi },
-    finnhub: { used: currentUsage('finnhub'), limit: providerDailyLimit.finnhub },
+    alphavantage: { used: currentUsage('alphavantage'), limit: safeLimit('alphavantage') },
+    forexrateapi: { used: currentUsage('forexrateapi'), limit: safeLimit('forexrateapi') },
+    finnhub: { used: currentUsage('finnhub'), limit: safeLimit('finnhub') },
   };
 }
