@@ -414,6 +414,47 @@ app.get('/api/candles/history', async (request) => {
   return mockCandle();
 });
 
+app.get('/api/exchange/realtime', async (request) => {
+  const q = request.query as { symbol?: string; timeframe?: string; provider?: string };
+  const symbol = q.symbol ?? 'EUR/USD';
+  const timeframe = q.timeframe ?? 'M5';
+  const provider = q.provider ?? (process.env.FOREX_PROVIDER || 'alphavantage');
+
+  let candles: Array<{ time: number; open: number; high: number; low: number; close: number }> = [];
+  try {
+    const out = await fetchCandlesByProvider({ symbol, timeframe, limit: 2, provider });
+    candles = out.candles.slice(-2);
+  } catch {
+    const res = await pool.query(
+      `SELECT ts, open, high, low, close
+       FROM forex.candles
+       WHERE symbol = $1 AND timeframe = $2
+       ORDER BY ts DESC
+       LIMIT 2`,
+      [symbol, timeframe],
+    );
+    candles = res.rows.reverse().map(toChartCandle);
+  }
+
+  if (candles.length === 0) candles = mockCandle();
+  const latest = candles[candles.length - 1];
+  const prev = candles.length > 1 ? candles[candles.length - 2] : latest;
+  const change = latest.close - prev.close;
+  const changePct = prev.close === 0 ? 0 : (change / prev.close) * 100;
+  const pips = change * 10000;
+
+  return {
+    symbol,
+    timeframe,
+    provider,
+    price: latest.close,
+    change,
+    changePct,
+    pips,
+    time: latest.time,
+  };
+});
+
 app.get('/signals/generate', async (request) => {
   const q = request.query as { symbol?: string; timeframe?: string };
   const symbol = q.symbol ?? 'EUR/USD';

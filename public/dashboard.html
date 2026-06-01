@@ -28,8 +28,19 @@
     <form method="POST" action="/logout"><button type="submit">Logout</button></form>
   </header>
   <div class="wrap">
-    <div class="panel">
-      <div id="chart"></div>
+    <div>
+      <div class="panel">
+        <div id="chart"></div>
+      </div>
+      <div class="panel" style="margin-top:12px;">
+        <div class="label">Realtime Exchange</div>
+        <div class="big" id="rtPrice">-</div>
+        <div style="display:flex; gap:16px; margin-top:8px;">
+          <div><span class="label">Pips</span><div id="rtPips">-</div></div>
+          <div><span class="label">Change %</span><div id="rtChangePct">-</div></div>
+          <div><span class="label">Time</span><div id="rtTime">-</div></div>
+        </div>
+      </div>
     </div>
     <div class="panel">
       <div class="label">Predicted Signal</div>
@@ -102,6 +113,25 @@
       updateMarkers(markers);
     }
 
+    function updateRealtimeIndicatorFromCandle(candle) {
+      if (!candle) return;
+      document.getElementById('rtPrice').textContent = Number(candle.close).toFixed(5);
+      document.getElementById('rtTime').textContent = new Date(candle.time * 1000).toLocaleTimeString();
+    }
+
+    async function refreshRealtimeIndicator() {
+      try {
+        const r = await fetch(`/api/exchange/realtime?provider=${encodeURIComponent(provider)}&symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}`);
+        const x = await r.json();
+        document.getElementById('rtPrice').textContent = Number(x.price).toFixed(5);
+        document.getElementById('rtPips').textContent = Number(x.pips).toFixed(1);
+        document.getElementById('rtChangePct').textContent = Number(x.changePct).toFixed(4) + '%';
+        document.getElementById('rtTime').textContent = new Date(Number(x.time) * 1000).toLocaleTimeString();
+      } catch (e) {
+        console.error('realtime indicator fetch failed', e);
+      }
+    }
+
     async function loadInitial() {
       const health = await fetch('/health').then(r => r.json()).catch(() => ({ usingFallbackData: true, forexProvider: 'alphavantage' }));
       provider = health.forexProvider || 'alphavantage';
@@ -110,7 +140,10 @@
       const candles = await fetch(`/api/candles/history?provider=${encodeURIComponent(provider)}&symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=200`).then(r => r.json());
       console.log('history candles', candles.length);
       candleSeries.setData(candles);
-      if (candles.length > 0) lastCandleTime = candles[candles.length - 1].time;
+      if (candles.length > 0) {
+        lastCandleTime = candles[candles.length - 1].time;
+        updateRealtimeIndicatorFromCandle(candles[candles.length - 1]);
+      }
 
       const signalResp = await fetch(`/signals/generate?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}`).then(r => r.json()).catch(() => null);
       if (signalResp && signalResp.ok) {
@@ -137,6 +170,7 @@
         console.log('realtime candle received', payload);
         candleSeries.update(payload);
         lastCandleTime = payload.time;
+        updateRealtimeIndicatorFromCandle(payload);
       }
       if (event.type === 'signal') {
         const s = event.payload;
@@ -161,13 +195,16 @@
         if (!lastCandleTime || latest.time > lastCandleTime) {
           candleSeries.update(latest);
           lastCandleTime = latest.time;
+          updateRealtimeIndicatorFromCandle(latest);
         } else if (latest.time === lastCandleTime) {
           candleSeries.update(latest);
+          updateRealtimeIndicatorFromCandle(latest);
         }
       } catch (err) {
         console.error('polling failed', err);
       }
     }, 30000);
+    setInterval(refreshRealtimeIndicator, 30000);
 
     window.addEventListener('resize', () => chart.applyOptions({ width: document.getElementById('chart').clientWidth }));
     loadInitial();
