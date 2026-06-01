@@ -1,7 +1,7 @@
 import { FastifyReply } from 'fastify';
 
 type DashboardEvent = {
-  type: 'candle' | 'signal';
+  type: 'candle' | 'signal' | 'decision';
   payload: unknown;
 };
 
@@ -25,4 +25,3 @@ export function broadcastDashboardEvent(event: DashboardEvent) {
     }
   }
 }
-
