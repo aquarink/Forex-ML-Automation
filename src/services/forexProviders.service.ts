@@ -20,6 +20,7 @@ const providerMinIntervalMs: Record<ProviderName, number> = {
 
 const providerCache = new Map<string, { ts: number; candles: ApiCandle[] }>();
 const providerUsage = new Map<string, { day: string; count: number }>();
+const providerRuntime = new Map<ProviderName, { lastSuccessAt?: string; lastErrorAt?: string; lastError?: string }>();
 const providerDailyLimit: Record<ProviderName, number> = {
   alphavantage: Number(process.env.ALPHAVANTAGE_DAILY_LIMIT || 100),
   forexrateapi: Number(process.env.FOREXRATEAPI_DAILY_LIMIT || 100),
@@ -169,11 +170,25 @@ export async function fetchCandlesByProvider(params: FetchParams & { provider?: 
   }
 
   let candles: ApiCandle[];
-  if (provider === 'forexrateapi') candles = await fetchForexRateApiCandles({ symbol, timeframe, limit });
-  else if (provider === 'finnhub') candles = await fetchFinnhubCandles({ symbol, timeframe, limit });
-  else candles = await fetchAlphaVantageCandles({ symbol, timeframe, limit });
+  try {
+    if (provider === 'forexrateapi') candles = await fetchForexRateApiCandles({ symbol, timeframe, limit });
+    else if (provider === 'finnhub') candles = await fetchFinnhubCandles({ symbol, timeframe, limit });
+    else candles = await fetchAlphaVantageCandles({ symbol, timeframe, limit });
+  } catch (err) {
+    providerRuntime.set(provider, {
+      ...providerRuntime.get(provider),
+      lastErrorAt: new Date().toISOString(),
+      lastError: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
 
   providerCache.set(cacheKey, { ts: now, candles });
+  providerRuntime.set(provider, {
+    ...providerRuntime.get(provider),
+    lastSuccessAt: new Date().toISOString(),
+    lastError: undefined,
+  });
   const nextUsage = incrementUsage(provider);
   console.log(`[provider usage] ${provider} ${todayKey()} count=${nextUsage}`);
   return { provider, candles, cached: false, hardStop: false };
@@ -186,5 +201,13 @@ export function getProviderUsageSnapshot() {
     alphavantage: { used: currentUsage('alphavantage'), limit: safeLimit('alphavantage') },
     forexrateapi: { used: currentUsage('forexrateapi'), limit: safeLimit('forexrateapi') },
     finnhub: { used: currentUsage('finnhub'), limit: safeLimit('finnhub') },
+  };
+}
+
+export function getProviderRuntimeSnapshot(provider?: string) {
+  const normalized = normalizeProvider(provider);
+  return {
+    provider: normalized,
+    ...providerRuntime.get(normalized),
   };
 }

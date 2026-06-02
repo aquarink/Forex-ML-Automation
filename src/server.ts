@@ -308,6 +308,7 @@ app.get('/api/dashboard/state', async (request) => {
     timeframe,
     provider,
     usingFallbackData: isUsingFallbackData,
+    kafkaStatus: getKafkaStatus(),
   });
 });
 

@@ -1,5 +1,5 @@
 import { pool } from '../db';
-import { getProviderUsageSnapshot } from './forexProviders.service';
+import { getProviderRuntimeSnapshot, getProviderUsageSnapshot } from './forexProviders.service';
 
 function numberOrNull(value: unknown) {
   const n = Number(value);
@@ -40,6 +40,7 @@ export async function getDashboardState(params: {
   timeframe: string;
   provider: string;
   usingFallbackData: boolean;
+  kafkaStatus?: unknown;
 }) {
   const candlesRes = await pool.query(
     `SELECT ts, open, high, low, close
@@ -93,12 +94,24 @@ export async function getDashboardState(params: {
 
   const closes = candles.map((c) => c.close);
 
+  const providerRuntime = getProviderRuntimeSnapshot(params.provider);
+
   return {
     pair: params.symbol,
     timeframe: params.timeframe,
     provider: params.provider,
     usingFallbackData: params.usingFallbackData,
     providerUsage: getProviderUsageSnapshot(),
+    system: {
+      dataSource: params.usingFallbackData ? 'Mock / DB fallback' : params.provider,
+      status: params.usingFallbackData ? 'MOCK' : providerRuntime.lastSuccessAt ? 'LIVE' : 'POLLING',
+      pollingIntervalSeconds: 30,
+      lastApiSuccess: providerRuntime.lastSuccessAt ?? null,
+      lastApiError: providerRuntime.lastError ?? null,
+      lastApiErrorAt: providerRuntime.lastErrorAt ?? null,
+      kafka: params.kafkaStatus ?? null,
+      postgres: 'ok',
+    },
     price: latest
       ? {
           time: latest.time,

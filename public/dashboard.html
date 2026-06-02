@@ -5,319 +5,406 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Forex Dashboard</title>
   <style>
-    body { margin:0; font-family: Arial, sans-serif; background:#081327; color:#f7fbff; }
-    header { display:flex; justify-content:space-between; align-items:center; padding:14px 18px; background:#0f1d37; border-bottom:1px solid #1f3a67; }
-    .wrap { padding:16px; display:grid; grid-template-columns: 1fr 320px; gap:16px; }
-    .panel { background:#0f1d37; border:1px solid #1f3a67; border-radius:12px; padding:12px; }
-    #chart { height:460px; }
-    .label { color:#9fb4d6; font-size:12px; }
-    .big { font-size:26px; font-weight:700; margin-top:4px; }
-    .bar { height:14px; width:100%; background:#1d2d4f; border-radius:10px; overflow:hidden; }
-    .fill { height:100%; width:0%; transition:width .35s ease; }
-    .buy { background:#1bc47d; }
-    .sell { background:#ff5b61; }
-    .hold { background:#ffd166; }
-    .signal-detail { margin-top:12px; font-size:13px; line-height:1.5; color:#d6e2f5; }
-    .warn { margin-top:10px; color:#ffd166; font-size:12px; }
-    .up { color:#1bc47d; }
-    .down { color:#ff5b61; }
-    .flat { color:#d6e2f5; }
-    button { background:#243d67; color:#fff; border:0; border-radius:8px; padding:8px 12px; cursor:pointer; }
+    :root {
+      --bg: #0b1220;
+      --panel: #111827;
+      --panel-2: #0f172a;
+      --line: #26364f;
+      --text: #eef4ff;
+      --muted: #91a4c4;
+      --green: #22c55e;
+      --red: #ef4444;
+      --amber: #f59e0b;
+      --blue: #38bdf8;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, sans-serif; background: var(--bg); color: var(--text); }
+    header { height: 56px; display: flex; justify-content: space-between; align-items: center; padding: 0 18px; background: #090f1c; border-bottom: 1px solid var(--line); }
+    button { background: #1f2f49; color: #fff; border: 0; border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+    .brand { font-weight: 700; }
+    .status-row { display: flex; gap: 10px; align-items: center; color: var(--muted); font-size: 13px; }
+    .badge { display: inline-flex; align-items: center; min-height: 22px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: var(--text); font-size: 12px; }
+    .badge.live { color: var(--green); border-color: rgba(34,197,94,.35); }
+    .badge.polling { color: var(--blue); border-color: rgba(56,189,248,.35); }
+    .badge.mock { color: var(--amber); border-color: rgba(245,158,11,.45); }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; padding: 14px; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+    .chart-panel { padding: 12px; }
+    .chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+    .title { font-size: 17px; font-weight: 700; }
+    .sub { color: var(--muted); font-size: 12px; margin-top: 3px; }
+    #chart { height: 520px; }
+    .sidebar { padding: 14px; }
+    .label { color: var(--muted); font-size: 12px; }
+    .big { font-size: 30px; font-weight: 800; margin: 4px 0 12px; }
+    .metric { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+    .metric div { min-width: 0; }
+    .metric b { display: block; margin-top: 4px; overflow-wrap: anywhere; }
+    .bar { height: 12px; width: 100%; background: #22304a; border-radius: 999px; overflow: hidden; margin-top: 6px; }
+    .fill { height: 100%; width: 0%; transition: width .25s ease; }
+    .buy { background: var(--green); }
+    .sell { background: var(--red); }
+    .hold { background: var(--amber); }
+    .up { color: var(--green); }
+    .down { color: var(--red); }
+    .flat { color: var(--text); }
+    .warn { display: none; margin-top: 12px; color: var(--amber); font-size: 13px; line-height: 1.35; }
+    .detail { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); color: #d8e4f7; font-size: 13px; line-height: 1.55; }
+    .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; padding: 0 14px 14px; }
+    .card { padding: 14px; }
+    .card h3 { margin: 0 0 12px; font-size: 14px; }
+    .kv { display: grid; grid-template-columns: 110px 1fr; gap: 7px 10px; font-size: 13px; }
+    .kv span { color: var(--muted); }
+    .kv b { overflow-wrap: anywhere; }
+    @media (max-width: 1040px) {
+      .layout { grid-template-columns: 1fr; }
+      .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 640px) {
+      header { height: auto; gap: 10px; padding: 12px; flex-wrap: wrap; }
+      .cards { grid-template-columns: 1fr; }
+      #chart { height: 420px; }
+    }
   </style>
 </head>
 <body>
   <header>
-    <div>Dashboard Realtime Forex</div>
-    <form method="POST" action="/logout"><button type="submit">Logout</button></form>
-  </header>
-  <div class="wrap">
     <div>
-      <div class="panel">
-        <div id="chart"></div>
-      </div>
-      <div class="panel" style="margin-top:12px;">
-        <div class="label">Realtime Exchange</div>
-        <div style="display:flex; gap:16px; margin-top:6px; font-size:13px;">
-          <div>Pair: <b id="rtPair">EUR/USD</b></div>
-          <div>Provider: <b id="rtProvider">-</b></div>
-        </div>
-        <div class="big" id="rtPrice">-</div>
-        <div style="display:flex; gap:16px; margin-top:8px;">
-          <div><span class="label">Pips</span><div id="rtPips">-</div></div>
-          <div><span class="label">Change %</span><div id="rtChangePct">-</div></div>
-          <div><span class="label">Time</span><div id="rtTime">-</div></div>
-        </div>
-        <div style="display:flex; gap:16px; margin-top:8px; font-size:13px;">
-          <div>Trend: <b id="rtTrend">-</b></div>
-          <div>Volatility: <b id="rtVolatility">-</b></div>
-        </div>
-      </div>
-      <div class="panel" style="margin-top:12px;">
-        <div class="label">ML Trade Decision</div>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; font-size:14px;">
-          <div>Signal: <b id="mlSignal">-</b></div>
-          <div>Confidence: <b id="mlConf">-</b></div>
-          <div>Entry: <b id="mlEntry">-</b></div>
-          <div>SL: <b id="mlSl">-</b></div>
-          <div>TP: <b id="mlTp">-</b></div>
-          <div>R:R: <b id="mlRr">-</b></div>
-        </div>
+      <div class="brand">Dashboard Realtime Forex</div>
+      <div class="status-row">
+        <span id="navPair">EUR/USD</span>
+        <span id="navTimeframe">M5</span>
+        <span id="navProvider">Alpha Vantage</span>
       </div>
     </div>
-    <div class="panel">
+    <div class="status-row">
+      <span id="navStatus" class="badge polling">POLLING</span>
+      <span>Last update: <b id="lastUpdate">-</b></span>
+      <form method="POST" action="/logout"><button type="submit">Logout</button></form>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel chart-panel">
+      <div class="chart-head">
+        <div>
+          <div class="title" id="chartTitle">EUR/USD &bull; M5 &bull; Alpha Vantage</div>
+          <div class="sub" id="chartSubtitle">Waiting for market data</div>
+        </div>
+        <span id="sourceBadge" class="badge polling">POLLING</span>
+      </div>
+      <div id="chart"></div>
+    </section>
+
+    <aside class="panel sidebar">
       <div class="label">Predicted Signal</div>
       <div class="big" id="signalType">HOLD</div>
-      <div class="label">Open Position</div>
-      <div class="big" id="openPosition">NONE</div>
       <div class="label">Confidence</div>
       <div class="bar"><div id="confidenceFill" class="fill hold"></div></div>
       <div id="confidenceText" style="margin-top:6px">0%</div>
-      <div class="warn" id="fallbackWarn" style="display:none">Using fallback/mock data</div>
-      <hr style="border-color:#1f3a67; margin:14px 0">
-      <div class="label">Marker Detail</div>
-      <div class="signal-detail" id="markerDetail">Klik marker BUY/SELL untuk lihat detail.</div>
+      <div class="metric">
+        <div><span class="label">Open Position</span><b id="openPosition">NONE</b></div>
+        <div><span class="label">Reason</span><b id="signalReason">-</b></div>
+        <div><span class="label">Entry</span><b id="sideEntry">-</b></div>
+        <div><span class="label">Stop Loss</span><b id="sideSl">-</b></div>
+        <div><span class="label">Take Profit</span><b id="sideTp">-</b></div>
+        <div><span class="label">Risk Reward</span><b id="sideRr">-</b></div>
+      </div>
+      <div id="fallbackWarn" class="warn">Alpha Vantage unavailable or rate limited. Using mock data.</div>
+      <div class="detail">
+        <div class="label">Marker Detail</div>
+        <div id="markerDetail">Click a BUY/SELL marker for candle details.</div>
+      </div>
+    </aside>
+  </main>
+
+  <section class="cards">
+    <div class="panel card">
+      <h3>Market Info</h3>
+      <div class="kv">
+        <span>Pair</span><b id="rtPair">EUR/USD</b>
+        <span>Timeframe</span><b id="rtTimeframe">M5</b>
+        <span>Provider</span><b id="rtProvider">-</b>
+        <span>Bid / Ask</span><b id="rtBidAsk">-</b>
+        <span>Last Price</span><b id="rtPrice">-</b>
+        <span>Spread</span><b id="rtSpread">-</b>
+        <span>Pips</span><b id="rtPips">-</b>
+        <span>Change %</span><b id="rtChangePct">-</b>
+        <span>Last Update</span><b id="rtTime">-</b>
+      </div>
     </div>
-  </div>
+    <div class="panel card">
+      <h3>ML Trade Decision</h3>
+      <div class="kv">
+        <span>Signal</span><b id="mlSignal">-</b>
+        <span>Confidence</span><b id="mlConf">-</b>
+        <span>Entry</span><b id="mlEntry">-</b>
+        <span>Stop Loss</span><b id="mlSl">-</b>
+        <span>Take Profit</span><b id="mlTp">-</b>
+        <span>R:R</span><b id="mlRr">-</b>
+      </div>
+    </div>
+    <div class="panel card">
+      <h3>Position / Order Status</h3>
+      <div class="kv">
+        <span>Status</span><b id="posStatus">NONE</b>
+        <span>Qty</span><b id="posQty">-</b>
+        <span>Entry</span><b id="posEntry">-</b>
+        <span>SL</span><b id="posSl">-</b>
+        <span>TP</span><b id="posTp">-</b>
+      </div>
+    </div>
+    <div class="panel card">
+      <h3>System Status</h3>
+      <div class="kv">
+        <span>Data Source</span><b id="sysSource">-</b>
+        <span>Polling</span><b id="sysPolling">30s</b>
+        <span>API Success</span><b id="sysApiSuccess">-</b>
+        <span>API Error</span><b id="sysApiError">-</b>
+        <span>Kafka</span><b id="sysKafka">-</b>
+        <span>PostgreSQL</span><b id="sysPg">-</b>
+      </div>
+    </div>
+  </section>
 
   <script src="https://unpkg.com/lightweight-charts@5.0.0/dist/lightweight-charts.standalone.production.js"></script>
   <script>
     const symbol = 'EUR/USD';
     const timeframe = 'M5';
-    let openPosition = 'NONE';
+    const markerThreshold = 0.65;
     let provider = 'alphavantage';
-    let prevClose = null;
+    let lastCandle = null;
+    let isMockMode = false;
+    const markers = [];
+    const markerMetaByTime = new Map();
 
     const chart = LightweightCharts.createChart(document.getElementById('chart'), {
-      layout: { background: { color: '#0f1d37' }, textColor: '#d6e2f5' },
-      grid: { vertLines: { color: '#1a2f55' }, horzLines: { color: '#1a2f55' } },
-      rightPriceScale: { borderColor: '#315089' },
-      timeScale: { borderColor: '#315089' },
+      layout: { background: { color: '#111827' }, textColor: '#eef4ff' },
+      grid: { vertLines: { color: '#1d2b42' }, horzLines: { color: '#1d2b42' } },
+      rightPriceScale: { borderColor: '#1f3b66' },
+      timeScale: {
+        timeVisible: true,
+        secondsVisible: false,
+        borderColor: '#1f3b66',
+      },
+      localization: {
+        timeFormatter: (time) => {
+          const date = new Date(time * 1000);
+          return date.toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+        },
+      },
       width: document.getElementById('chart').clientWidth,
-      height: 460,
+      height: 520,
     });
 
     const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
-      upColor: '#26a69a', downColor: '#ef5350', borderVisible: false,
-      wickUpColor: '#26a69a', wickDownColor: '#ef5350'
+      upColor: '#22c55e',
+      downColor: '#ef4444',
+      borderVisible: false,
+      wickUpColor: '#22c55e',
+      wickDownColor: '#ef4444',
     });
+    const markerApi = LightweightCharts.createSeriesMarkers(candleSeries, []);
 
-    let markers = [];
-    let markerApi = null;
-    let lastCandleTime = null;
-    const markerMetaByTime = new Map();
+    function formatTime(seconds) {
+      if (!seconds) return '-';
+      return new Date(seconds * 1000).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    }
 
-    function updateMarkers(nextMarkers) {
-      try {
-        if (markerApi) {
-          markerApi.setMarkers(nextMarkers);
-          return;
-        }
-        markerApi = LightweightCharts.createSeriesMarkers(candleSeries, nextMarkers);
-      } catch (err) {
-        console.error('marker update failed', err);
+    function providerLabel(value) {
+      if (value === 'alphavantage') return 'Alpha Vantage';
+      if (value === 'forexrateapi') return 'ForexRateAPI';
+      if (value === 'finnhub') return 'Finnhub';
+      return value || '-';
+    }
+
+    function setText(id, value) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value == null || value === '' ? '-' : String(value);
+    }
+
+    function setClassByValue(id, value) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.className = value > 0 ? 'up' : value < 0 ? 'down' : 'flat';
+    }
+
+    function setStatus(status) {
+      const normalized = String(status || 'POLLING').toUpperCase();
+      for (const id of ['navStatus', 'sourceBadge']) {
+        const el = document.getElementById(id);
+        el.textContent = normalized;
+        el.className = 'badge ' + (normalized === 'LIVE' ? 'live' : normalized === 'MOCK' ? 'mock' : 'polling');
       }
     }
 
-    function updateSignalVisual(type, confidence) {
-      document.getElementById('signalType').textContent = type;
-      document.getElementById('openPosition').textContent = openPosition;
-      const fill = document.getElementById('confidenceFill');
-      fill.style.width = Math.round(confidence * 100) + '%';
-      fill.className = 'fill ' + (type === 'BUY' ? 'buy' : type === 'SELL' ? 'sell' : 'hold');
-      document.getElementById('confidenceText').textContent = Math.round(confidence * 100) + '%';
+    function normalizeCandle(candle) {
+      if (typeof candle.time === 'number') return candle;
+      return {
+        time: Math.floor(new Date(candle.ts || candle.time).getTime() / 1000),
+        open: Number(candle.open),
+        high: Number(candle.high),
+        low: Number(candle.low),
+        close: Number(candle.close),
+      };
     }
 
-    function applyDashboardState(state) {
+    function updateMarkers() {
+      markerApi.setMarkers(markers.slice(-100));
+    }
+
+    function addSignalMarker(signal, confidence, candleTime, meta) {
+      if (!['BUY', 'SELL'].includes(signal) || confidence < markerThreshold) return;
+      const marker = signal === 'BUY'
+        ? { time: candleTime, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: `BUY ${Math.round(confidence * 100)}%` }
+        : { time: candleTime, position: 'aboveBar', color: '#ef4444', shape: 'arrowDown', text: `SELL ${Math.round(confidence * 100)}%` };
+      markers.push(marker);
+      markerMetaByTime.set(candleTime, meta);
+      while (markers.length > 100) markers.shift();
+      updateMarkers();
+    }
+
+    function applyCandle(candle) {
+      const latest = normalizeCandle(candle);
+      if (!latest.time || !Number.isFinite(latest.close)) return;
+      candleSeries.update(latest);
+      lastCandle = latest;
+      setText('lastUpdate', new Date().toLocaleTimeString('id-ID'));
+    }
+
+    function applyState(state) {
       if (!state) return;
       provider = state.provider || provider;
-      openPosition = state.position?.status || 'NONE';
-      document.getElementById('rtPair').textContent = state.pair || symbol;
-      document.getElementById('rtProvider').textContent = provider;
-      document.getElementById('fallbackWarn').style.display = state.usingFallbackData ? 'block' : 'none';
-      document.getElementById('rtTrend').textContent = state.market?.trend || '-';
-      document.getElementById('rtVolatility').textContent = state.market?.volatility || '-';
+      isMockMode = Boolean(state.usingFallbackData || state.system?.status === 'MOCK');
+      const status = state.system?.status || (isMockMode ? 'MOCK' : 'POLLING');
+      setStatus(status);
+      setText('navPair', state.pair || symbol);
+      setText('navTimeframe', state.timeframe || timeframe);
+      setText('navProvider', providerLabel(provider));
+      setText('chartTitle', `${state.pair || symbol} \u2022 ${state.timeframe || timeframe} \u2022 ${providerLabel(provider)}`);
+      setText('chartSubtitle', `Last update: ${state.price ? formatTime(state.price.time) : '-'} | Status: ${String(status).toUpperCase()}`);
+      setText('rtPair', state.pair || symbol);
+      setText('rtTimeframe', state.timeframe || timeframe);
+      setText('rtProvider', providerLabel(provider));
+      setText('rtBidAsk', '-');
+      setText('rtSpread', '-');
+      setText('rtTrend', state.market?.trend || '-');
+      setText('rtVolatility', state.market?.volatility || '-');
+      setText('sysSource', state.system?.dataSource || '-');
+      setText('sysPolling', `${state.system?.pollingIntervalSeconds || 30}s`);
+      setText('sysApiSuccess', state.system?.lastApiSuccess ? new Date(state.system.lastApiSuccess).toLocaleTimeString('id-ID') : '-');
+      setText('sysApiError', state.system?.lastApiError || '-');
+      setText('sysKafka', state.system?.kafka?.enabled ? 'connected' : 'offline');
+      setText('sysPg', state.system?.postgres || '-');
+      document.getElementById('fallbackWarn').style.display = isMockMode ? 'block' : 'none';
 
       if (state.price) {
-        const pips = Number(state.price.pips || 0);
-        const pct = Number(state.price.changePct || 0);
-        const cls = pips > 0 ? 'up' : pips < 0 ? 'down' : 'flat';
-        document.getElementById('rtPrice').textContent = Number(state.price.value).toFixed(5);
-        document.getElementById('rtPips').textContent = pips.toFixed(1);
-        document.getElementById('rtChangePct').textContent = pct.toFixed(4) + '%';
-        document.getElementById('rtPips').className = cls;
-        document.getElementById('rtChangePct').className = cls;
-        document.getElementById('rtTime').textContent = new Date(Number(state.price.time) * 1000).toLocaleTimeString();
+        setText('rtPrice', Number(state.price.value).toFixed(5));
+        setText('rtPips', Number(state.price.pips || 0).toFixed(1));
+        setText('rtChangePct', Number(state.price.changePct || 0).toFixed(4) + '%');
+        setText('rtTime', formatTime(state.price.time));
+        setClassByValue('rtPips', Number(state.price.pips || 0));
+        setClassByValue('rtChangePct', Number(state.price.pips || 0));
       }
 
-      if (state.prediction) {
-        updateSignalVisual(String(state.prediction.signal || 'HOLD').toUpperCase(), Number(state.prediction.confidence || 0) / 100);
-      }
+      const prediction = state.prediction || { signal: 'HOLD', confidence: 0 };
+      const signal = String(prediction.signal || 'HOLD').toUpperCase();
+      const confidence = Number(prediction.confidence || 0) / 100;
+      setText('signalType', signal);
+      setText('confidenceText', Math.round(confidence * 100) + '%');
+      const fill = document.getElementById('confidenceFill');
+      fill.style.width = Math.round(confidence * 100) + '%';
+      fill.className = 'fill ' + (signal === 'BUY' ? 'buy' : signal === 'SELL' ? 'sell' : 'hold');
 
-      if (state.decision) {
-        document.getElementById('mlSignal').textContent = state.decision.signal;
-        document.getElementById('mlConf').textContent = Number(state.decision.confidence || 0).toFixed(1) + '%';
-        document.getElementById('mlEntry').textContent = Number(state.decision.entry || 0).toFixed(5);
-        document.getElementById('mlSl').textContent = Number(state.decision.stopLoss || 0).toFixed(5);
-        document.getElementById('mlTp').textContent = Number(state.decision.takeProfit || 0).toFixed(5);
-        document.getElementById('mlRr').textContent = Number(state.decision.riskReward || 0).toFixed(2);
-      }
+      const position = state.position || { status: 'NONE' };
+      setText('openPosition', position.status || 'NONE');
+      setText('posStatus', position.status || 'NONE');
+      setText('posQty', position.qty ?? '-');
+      setText('posEntry', position.entry ? Number(position.entry).toFixed(5) : '-');
+      setText('posSl', position.stopLoss ? Number(position.stopLoss).toFixed(5) : '-');
+      setText('posTp', position.takeProfit ? Number(position.takeProfit).toFixed(5) : '-');
+
+      const decision = state.decision;
+      setText('signalReason', decision?.reason || '-');
+      setText('mlSignal', decision?.signal || '-');
+      setText('mlConf', decision?.confidence ? Number(decision.confidence).toFixed(1) + '%' : '-');
+      setText('mlEntry', decision?.entry ? Number(decision.entry).toFixed(5) : '-');
+      setText('mlSl', decision?.stopLoss ? Number(decision.stopLoss).toFixed(5) : '-');
+      setText('mlTp', decision?.takeProfit ? Number(decision.takeProfit).toFixed(5) : '-');
+      setText('mlRr', decision?.riskReward ? Number(decision.riskReward).toFixed(2) : '-');
+      setText('sideEntry', decision?.entry ? Number(decision.entry).toFixed(5) : '-');
+      setText('sideSl', decision?.stopLoss ? Number(decision.stopLoss).toFixed(5) : '-');
+      setText('sideTp', decision?.takeProfit ? Number(decision.takeProfit).toFixed(5) : '-');
+      setText('sideRr', decision?.riskReward ? Number(decision.riskReward).toFixed(2) : '-');
     }
 
-    async function refreshDashboardState() {
+    async function fetchState() {
       const state = await fetch(`/api/dashboard/state?provider=${encodeURIComponent(provider)}&symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}`).then(r => r.json());
-      applyDashboardState(state);
+      applyState(state);
       return state;
     }
 
-    function addSignalMarker(signal, confidence, candleTime, meta = null) {
-      if (confidence < 0.6) return;
-      const marker = signal === 'BUY'
-        ? { time: candleTime, position: 'belowBar', color: '#00ff99', shape: 'arrowUp', text: 'BUY' }
-        : { time: candleTime, position: 'aboveBar', color: '#ff4d4d', shape: 'arrowDown', text: 'SELL' };
-      markers.push(marker);
-      markerMetaByTime.set(candleTime, meta || {
-        symbol,
-        signal_type: signal,
-        confidence: confidence * 100,
-        price: null,
-        candle_time: new Date(candleTime * 1000).toISOString(),
-      });
-      console.log('markers', markers);
-      updateMarkers(markers);
-    }
-
-    function updateRealtimeIndicatorFromCandle(candle) {
-      if (!candle) return;
-      const close = Number(candle.close);
-      document.getElementById('rtPrice').textContent = close.toFixed(5);
-      document.getElementById('rtTime').textContent = new Date(candle.time * 1000).toLocaleTimeString();
-      if (prevClose != null && Number.isFinite(prevClose) && prevClose !== 0) {
-        const pips = (close - prevClose) * 10000;
-        const pct = ((close - prevClose) / prevClose) * 100;
-        const cls = pips > 0 ? 'up' : pips < 0 ? 'down' : 'flat';
-        const pipsEl = document.getElementById('rtPips');
-        const pctEl = document.getElementById('rtChangePct');
-        pipsEl.textContent = pips.toFixed(1);
-        pctEl.textContent = pct.toFixed(4) + '%';
-        pipsEl.className = cls;
-        pctEl.className = cls;
-      }
-      prevClose = close;
-    }
-
-    async function refreshRealtimeIndicator() {
-      try {
-        const r = await fetch(`/api/exchange/realtime?provider=${encodeURIComponent(provider)}&symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}`);
-        const x = await r.json();
-        const pips = Number(x.pips);
-        const pct = Number(x.changePct);
-        const cls = pips > 0 ? 'up' : pips < 0 ? 'down' : 'flat';
-        document.getElementById('rtPrice').textContent = Number(x.price).toFixed(5);
-        const pipsEl = document.getElementById('rtPips');
-        const pctEl = document.getElementById('rtChangePct');
-        pipsEl.textContent = pips.toFixed(1);
-        pctEl.textContent = pct.toFixed(4) + '%';
-        pipsEl.className = cls;
-        pctEl.className = cls;
-        document.getElementById('rtTime').textContent = new Date(Number(x.time) * 1000).toLocaleTimeString();
-      } catch (e) {
-        console.error('realtime indicator fetch failed', e);
-      }
-    }
-
     async function loadInitial() {
-      const state = await refreshDashboardState().catch(() => null);
+      const state = await fetchState().catch(() => null);
       if (state?.provider) provider = state.provider;
-
       const candles = await fetch(`/api/candles/history?provider=${encodeURIComponent(provider)}&symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=200`).then(r => r.json());
-      console.log('history candles', candles.length);
-      candleSeries.setData(candles);
-      if (candles.length > 0) {
-        lastCandleTime = candles[candles.length - 1].time;
-        updateRealtimeIndicatorFromCandle(candles[candles.length - 1]);
-      }
-
+      const normalized = candles.map(normalizeCandle).filter((c) => c.time && Number.isFinite(c.close));
+      candleSeries.setData(normalized);
+      if (normalized.length > 0) lastCandle = normalized[normalized.length - 1];
+      chart.timeScale().fitContent();
       const signalResp = await fetch(`/signals/generate?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}`).then(r => r.json()).catch(() => null);
-      if (signalResp && signalResp.ok) {
-        const signal = String(signalResp.signal || 'HOLD').toUpperCase();
-        const confidence = Number(signalResp.confidence || 0) / 100;
-        console.log('predicted signal', signal);
-        updateSignalVisual(signal, confidence);
-        if (signal !== 'HOLD' && candles.length > 0) {
-          const t = candles[candles.length - 1].time;
-          addSignalMarker(signal, confidence, t, {
-            symbol,
-            signal_type: signal,
-            confidence: Number(signalResp.confidence || 0),
-            price: candles[candles.length - 1].close,
-            candle_time: new Date(t * 1000).toISOString(),
-          });
-        }
+      if (signalResp?.ok && lastCandle) {
+        addSignalMarker(String(signalResp.signal).toUpperCase(), Number(signalResp.confidence || 0) / 100, lastCandle.time, {
+          symbol,
+          signal_type: String(signalResp.signal).toUpperCase(),
+          confidence: Number(signalResp.confidence || 0),
+          price: lastCandle.close,
+          candle_time: new Date(lastCandle.time * 1000).toISOString(),
+        });
       }
-      await refreshDashboardState().catch(() => undefined);
+      await fetchState().catch(() => undefined);
     }
 
-    async function refreshDecisionPanel() {
-      try {
-        const r = await fetch(`/api/ml/latest-decision?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}`);
-        const json = await r.json();
-        const d = json.data;
-        if (!d) return;
-        document.getElementById('mlSignal').textContent = d.signal_type;
-        document.getElementById('mlConf').textContent = Number(d.confidence).toFixed(1) + '%';
-        document.getElementById('mlEntry').textContent = Number(d.entry_price).toFixed(5);
-        document.getElementById('mlSl').textContent = Number(d.stop_loss).toFixed(5);
-        document.getElementById('mlTp').textContent = Number(d.take_profit).toFixed(5);
-        document.getElementById('mlRr').textContent = Number(d.risk_reward).toFixed(2);
-      } catch (e) {
-        console.error('decision panel fetch failed', e);
-      }
+    async function pollLatestCandle() {
+      const latestList = await fetch(`/api/candles/latest?provider=${encodeURIComponent(provider)}&symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=1`).then(r => r.json());
+      const latest = latestList && latestList[0] ? normalizeCandle(latestList[0]) : null;
+      if (!latest) return;
+      if (!lastCandle || latest.time >= lastCandle.time) applyCandle(latest);
+      await fetchState().catch(() => undefined);
+    }
+
+    function runMockMovement() {
+      if (!isMockMode || !lastCandle) return;
+      const drift = (Math.random() - 0.5) * 0.00012;
+      const close = Math.max(0.00001, lastCandle.close + drift);
+      const candle = {
+        ...lastCandle,
+        close,
+        high: Math.max(lastCandle.high, close),
+        low: Math.min(lastCandle.low, close),
+      };
+      applyCandle(candle);
     }
 
     const evt = new EventSource('/dashboard/stream');
     evt.onopen = () => console.log('websocket connected');
     evt.onmessage = (msg) => {
       const event = JSON.parse(msg.data);
-      if (event.type === 'candle') {
-        const c = event.payload;
-        const payload = {
-          time: Math.floor(new Date(c.ts).getTime() / 1000),
-          open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close),
-        };
-        console.log('realtime candle received', payload);
-        candleSeries.update(payload);
-        lastCandleTime = payload.time;
-        updateRealtimeIndicatorFromCandle(payload);
+      if (event.type === 'candle') applyCandle(normalizeCandle(event.payload));
+      if (event.type === 'signal' && lastCandle) {
+        const signal = String(event.payload.signal_type || 'HOLD').toUpperCase();
+        const confidence = Number(event.payload.confidence || 0) / 100;
+        addSignalMarker(signal, confidence, lastCandle.time, event.payload);
+        fetchState().catch(() => undefined);
       }
-      if (event.type === 'signal') {
-        const s = event.payload;
-        const signal = String(s.signal_type || 'HOLD').toUpperCase();
-        const confidence = Number(s.confidence || 0) / 100;
-        console.log('predicted signal', signal);
-        updateSignalVisual(signal, confidence);
-        if (signal !== 'HOLD') {
-          const candleTime = Math.floor(new Date(s.candle_time).getTime() / 1000);
-          addSignalMarker(signal, confidence, candleTime, s);
-        }
-      }
-      if (event.type === 'decision') {
-        const d = event.payload;
-        document.getElementById('mlSignal').textContent = d.signal_type;
-        document.getElementById('mlConf').textContent = Number(d.confidence).toFixed(1) + '%';
-        document.getElementById('mlEntry').textContent = Number(d.entry_price).toFixed(5);
-        document.getElementById('mlSl').textContent = Number(d.stop_loss).toFixed(5);
-        document.getElementById('mlTp').textContent = Number(d.take_profit).toFixed(5);
-        document.getElementById('mlRr').textContent = Number(d.risk_reward).toFixed(2);
-      }
+      if (event.type === 'decision') fetchState().catch(() => undefined);
     };
 
     chart.subscribeClick(async (param) => {
       if (!param.time) return;
-      const time = Number(param.time);
-      const meta = markerMetaByTime.get(time);
+      const meta = markerMetaByTime.get(Number(param.time));
       if (!meta) return;
-      document.getElementById('markerDetail').innerHTML =
-        `Time: ${meta.candle_time}<br>Signal: ${meta.signal_type}<br>Price: ${meta.price ?? '-'}<br>Confidence: ${Number(meta.confidence).toFixed(2)}%<br>Symbol: ${meta.symbol}`;
+      setText('markerDetail', `Time: ${meta.candle_time} | Signal: ${meta.signal_type} | Price: ${meta.price ?? '-'} | Confidence: ${Number(meta.confidence).toFixed(2)}% | Symbol: ${meta.symbol}`);
       try {
         await fetch('/signals/event', {
           method: 'POST',
@@ -335,29 +422,9 @@
       }
     });
 
-    setInterval(async () => {
-      try {
-        const latestList = await fetch(`/api/candles/latest?provider=${encodeURIComponent(provider)}&symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=1`).then(r => r.json());
-        const latest = latestList && latestList[0];
-        console.log('latest candle', latest);
-        if (!latest) return;
-
-        if (!lastCandleTime || latest.time > lastCandleTime) {
-          candleSeries.update(latest);
-          lastCandleTime = latest.time;
-          updateRealtimeIndicatorFromCandle(latest);
-        } else if (latest.time === lastCandleTime) {
-          candleSeries.update(latest);
-          updateRealtimeIndicatorFromCandle(latest);
-        }
-      } catch (err) {
-        console.error('polling failed', err);
-      }
-    }, 60000);
-    setInterval(refreshRealtimeIndicator, 60000);
-    setInterval(refreshDecisionPanel, 60000);
-    setInterval(refreshDashboardState, 60000);
-
+    setInterval(pollLatestCandle, 30000);
+    setInterval(runMockMovement, 2000);
+    setInterval(fetchState, 30000);
     window.addEventListener('resize', () => chart.applyOptions({ width: document.getElementById('chart').clientWidth }));
     loadInitial();
   </script>
